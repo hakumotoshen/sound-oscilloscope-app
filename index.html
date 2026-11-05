@@ -148,6 +148,9 @@ td.n,th.n{text-align:right}
   <button data-v="single" title="每次吹奏＋中位數">本音曲線</button>
   <button data-v="cmp" title="各材質同一個音疊在一起">同音比較</button>
 </div>
+<div id="noteNav" class="row" style="margin:6px 0;display:none">
+  <button id="nvPrev" title="上一個音">◀</button><span id="nvTxt" class="muted" style="flex:1;text-align:center"></span><button id="nvNext" title="下一個音">▶</button>
+</div>
 <div id="wrap">
   <canvas id="cv"></canvas>
   <div id="readout"></div>
@@ -485,7 +488,7 @@ async function ensureCtx(){
 function applyAn(){if(!an)return;an.fftSize=+$('fft').value;an.smoothingTimeConstant=+$('sm').value/100;an.minDecibels=-140;an.maxDecibels=0;live=null;peakData=null}
 $('fft').onchange=applyAn;$('sm').oninput=applyAn;
 function detach(){try{srcNode&&srcNode.disconnect()}catch(e){}try{an&&an.disconnect()}catch(e){}srcNode=null;if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}}
-function setMode(m){mode=m;resetAuto();$('bMic').classList.toggle('on',m==='mic');$('bFile').classList.toggle('on',m==='file');$('aud').style.display=m==='file'?'block':'none';$('hint').style.display='none';resize()}
+function setMode(m){mode=m;resetAuto();$('bMic').classList.toggle('on',m==='mic');$('bFile').classList.toggle('on',m==='file');$('aud').style.display=m==='file'?'block':'none';updHint();resize()}
 $('bMic').onclick=async()=>{try{await ensureCtx();$('aud').pause();detach();
   stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
   srcNode=ac.createMediaStreamSource(stream);srcNode.connect(an);setMode('mic')}catch(e){alert('無法開啟麥克風：'+e.message)}};
@@ -573,7 +576,7 @@ function addNote(mi){if(proj.notes.includes(mi))return;proj.notes.push(mi);proj.
 $('nAdd').onclick=()=>{const mi=+$('nOct').value*12+12+(+$('nName').value);addNote(mi);selectNote(mi)};
 $('nDoSi').onclick=()=>{const base=+$('nOct').value*12+12;[0,2,4,5,7,9,11].forEach(p=>addNote(base+p));selectNote(base)};
 [['wH','h'],['wS','s'],['wSp','sp'],['wSt','st']].forEach(([id,k])=>{$(id).oninput=e=>{proj.weights[k]=+e.target.value;$(id+'v').textContent=e.target.value;save();renderCmp();renderNoteCard()}});
-document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{view=b.dataset.v;document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b))});
+document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{view=b.dataset.v;document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b));updNav();updHint();resize()});
 
 // ---------- 畫面 ----------
 function renderSel(){
@@ -647,7 +650,18 @@ function renderCmp(){
     const cv=sumCanvas(k,w,hh,false,d);cv.style.cssText='display:block;margin:0 auto 10px;max-width:100%;width:'+w+'px;height:auto';box.appendChild(cv)});
 }
 let rzT;addEventListener('resize',()=>{clearTimeout(rzT);rzT=setTimeout(()=>{try{renderCmp()}catch(e){}},200)});
-function renderAll(){renderSel();renderChips();renderStatus();renderNoteCard();renderCmp()}
+function updHint(){$('hint').style.display=(view==='live'&&!mode)?'':'none'}
+function updNav(){
+  const el=$('noteNav'),mi=proj.cur.midi,ns=proj.notes;
+  el.style.display=(view!=='live'&&ns.length>1)?'flex':'none';
+  if(mi==null||!ns.length){$('nvTxt').textContent='';return}
+  const i=ns.indexOf(mi);
+  $('nvTxt').textContent='正在看：'+solf(mi)+'（'+nm(mi)+' → '+nm(mi+proj.transpose)+'）　'+(i+1)+' / '+ns.length;
+  $('nvPrev').disabled=i<=0;$('nvNext').disabled=i<0||i>=ns.length-1;
+}
+const stepNote=d=>{const ns=proj.notes,i=ns.indexOf(proj.cur.midi),j=i+d;if(i>=0&&j>=0&&j<ns.length)selectNote(ns[j])};
+$('nvPrev').onclick=()=>stepNote(-1);$('nvNext').onclick=()=>stepNote(1);
+function renderAll(){renderSel();renderChips();renderStatus();renderNoteCard();renderCmp();updNav();updHint()}
 
 // ---------- 主迴圈 ----------
 function frame(){
