@@ -1,0 +1,689 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>音波示波器</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg">
+<meta name="theme-color" content="#0b0f14">
+<style>
+:root{--bg:#0b0f14;--panel:#131a22;--line:#223040;--tx:#d7e3ee;--mu:#7d93a8;--ac:#22d3ee;--bad:#ff5d6c;--ok:#34d399}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.5 system-ui,"Noto Sans TC",sans-serif;padding:0 16px 60px;max-width:1100px;margin-inline:auto}
+h1{font-size:18px;margin:14px 0 10px}
+h1 small{color:var(--mu);font-weight:400;font-size:12px;margin-left:6px}
+h2{font-size:14px;color:var(--mu);margin:22px 0 8px;font-weight:600}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0}
+button,select,input[type=text],input[type=number],textarea{background:var(--panel);color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:8px 12px;font:inherit}
+button{cursor:pointer}
+button:hover{border-color:var(--ac)}
+button.on{background:var(--ac);color:#04222a;border-color:var(--ac);font-weight:600}
+button.done{background:#0f3d2e;border-color:var(--ok);color:#baf7df;font-weight:700;font-size:16px;padding:12px 18px}
+button.done:hover{background:#14563f}
+button.rec{border-color:#f59e0b;color:#fbbf24}
+label.f{display:flex;align-items:center;gap:6px;color:var(--mu);font-size:13px}
+input[type=range]{accent-color:var(--ac);width:110px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin:10px 0}
+.card button,.card select,.card input[type=text],.card input[type=number],.card textarea{background:#0e141b}
+details summary{cursor:pointer;color:var(--mu);font-size:13px;margin:4px 0}
+label.blk{display:block;color:var(--mu);font-size:13px;margin:8px 0}
+textarea{width:100%;margin-top:4px}
+.muted{color:var(--mu);font-size:13px}
+.chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;padding:5px 6px 5px 12px;background:#0e141b;cursor:pointer;font-size:14px}
+.chip.fin{background:#0f3d2e;border-color:var(--ok)}
+.chip.cur{background:#0e5566;border-color:var(--ac);color:#fff;font-weight:700;box-shadow:0 0 0 2px var(--ac),0 0 12px #22d3ee66}
+.chip.cur small{color:#bfeaf2}
+.chip small{color:var(--mu)}
+.chip i{font-style:normal;color:var(--mu);padding:0 6px;border-radius:50%}
+.chip i:hover{color:var(--bad)}
+#tgt{font-size:14px;margin-top:4px}
+.tabs{display:flex;gap:6px;margin:8px 0 0}
+.tabs button{border-bottom-left-radius:0;border-bottom-right-radius:0}
+#wrap{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:0 12px 12px 12px;overflow:hidden;touch-action:none}
+canvas{display:block;width:100%;height:min(52vh,420px)}
+#readout{position:absolute;top:8px;left:12px;font-size:13px;background:#0b0f14cc;padding:3px 8px;border-radius:6px;pointer-events:none;display:none;max-width:90%}
+#hint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--mu);pointer-events:none;text-align:center;padding:20px}
+audio{width:100%;margin:6px 0;display:none}
+table{width:100%;border-collapse:collapse;font-size:13px}
+td,th{padding:4px 7px;text-align:left;border-bottom:1px solid var(--line)}
+th{color:var(--mu);font-weight:500}
+td.n,th.n{text-align:right}
+.best{color:var(--ok);font-weight:700}
+.bad{color:var(--bad)}
+.takes{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
+.take{border:1px solid var(--line);border-radius:8px;padding:2px 4px 2px 8px;font-size:12px;color:var(--mu)}
+.take b{cursor:pointer;color:var(--mu);padding:0 5px}
+.take b:hover{color:var(--bad)}
+.hl{display:inline-block;padding:1px 8px;border-radius:6px;font-size:12px}
+#report{display:none}
+@media print{
+  body{background:#fff;color:#111;padding:0}
+  body>*:not(#report){display:none!important}
+  #report{display:block!important;font:13px/1.6 "Noto Sans TC",system-ui,sans-serif;color:#111}
+  #report h1{font-size:22px;margin:0 0 6px}
+  #report h2{font-size:16px;color:#111;border-bottom:2px solid #333;padding-bottom:2px;margin:20px 0 8px;break-after:avoid}
+  #report h3{font-size:14px;margin:14px 0 4px;break-after:avoid}
+  #report table{font-size:11.5px;break-inside:avoid;margin-bottom:6px}
+  #report td,#report th{border-bottom:1px solid #ccc;color:#111}
+  #report th{background:#f0f2f5}
+  #report img{width:100%;break-inside:avoid;border:1px solid #ddd}
+  #report .muted{color:#555}
+  @page{margin:14mm}
+}
+</style>
+</head>
+<body>
+<h1>音波示波器 <small>材質泛音比較</small></h1>
+
+<div class="card">
+  <div class="row">
+    <label class="f">專案 <input id="pname" type="text" style="width:170px"></label>
+    <label class="f">樂器調性 <select id="inst"></select></label>
+    <label class="f">基準音高 A4 = <select id="a4"></select> Hz</label>
+    <label class="f" id="tcusW" hidden>聲音比寫譜 <input id="tcus" type="number" value="0" style="width:64px"> 半音（負＝低；選「自訂」才能改）</label>
+  </div>
+  <div class="row">
+    <label class="f">材質 <select id="mSel"></select></label>
+    <button id="mAdd">＋ 新增材質</button><button id="mRen">改名</button><button id="mDel">刪除</button>
+  </div>
+  <details>
+    <summary>材質屬性與測試條件（自己填寫，會進報告和 CSV）</summary>
+    <label class="blk">這個材質的屬性，一行一項，例如「厚度：0.35 mm」「合金：925 銀」
+      <textarea id="mAttrs" rows="3"></textarea></label>
+    <label class="blk">測試條件（吹奏者、麥克風距離、房間、同一支樂器…）
+      <textarea id="cond" rows="3"></textarea></label>
+  </details>
+</div>
+
+<div class="card">
+  <div class="muted">測試音：寫譜音，也就是你看譜吹的音（Do 就是譜上的 C）</div>
+  <div id="chips" class="row"></div>
+  <div class="row">
+    <select id="nName"></select>
+    <select id="nOct"></select>
+    <button id="nAdd">＋ 加入</button>
+    <button id="nDoSi">加入 Do–Si（此八度）</button>
+  </div>
+  <div id="tgt"></div>
+</div>
+
+<div class="row">
+  <button id="bMic">🎤 麥克風</button>
+  <button id="bFile">📁 音檔</button>
+  <input type="file" id="file" accept="audio/*" hidden>
+  <button id="bFreeze">⏸ 凍結</button>
+  <button id="bPeak">峰值保持</button>
+  <button id="bAuto" class="on">🤖 自動記錄：開</button>
+  <button id="bRec" class="rec">● 手動記錄一次</button>
+</div>
+<div class="row">
+  <button id="bDone" class="done">✓ 完成這個音（空白鍵）</button>
+  <button id="bUndo">↩ 刪最後一次（Z）</button>
+  <button id="bNext">⏭ 下一個音（N）</button>
+</div>
+<audio id="aud" controls></audio>
+
+<div class="tabs">
+  <button data-v="live" class="on">即時</button>
+  <button data-v="single">本音曲線（每次＋中位數）</button>
+  <button data-v="cmp">同音比較（各材質）</button>
+</div>
+<div id="wrap">
+  <canvas id="cv"></canvas>
+  <div id="readout"></div>
+  <div id="hint">先新增材質、加入測試音，再按「麥克風」或「音檔」<br><span class="muted">手機請用 HTTPS 或 localhost 才能開麥克風</span></div>
+</div>
+
+<div class="row">
+  <label class="f">平滑 <input type="range" id="sm" min="0" max="95" value="70"></label>
+  <label class="f">FFT
+    <select id="fft"><option>4096</option><option selected>8192</option><option>16384</option><option>32768</option></select>
+  </label>
+  <label class="f">最高頻率
+    <select id="fmax"><option value="5000">5 kHz</option><option value="10000">10 kHz</option><option value="20000" selected>20 kHz</option></select>
+  </label>
+  <label class="f">下限 dB <input type="range" id="dbmin" min="-140" max="-50" value="-110"></label>
+  <label class="f">觸發門檻 dB <input type="range" id="trig" min="-90" max="-20" value="-60"></label>
+</div>
+
+<h2>本音記錄</h2>
+<div id="noteCard" class="card"></div>
+
+<h2>材質綜合比較</h2>
+<div id="cmp" class="card"></div>
+<div class="card">
+  <div class="muted">評分權重（總和不必是 100，會自動換算）</div>
+  <div class="row">
+    <label class="f">泛音數 <input type="range" id="wH" min="0" max="100"><span id="wHv"></span></label>
+    <label class="f">泛音強度 <input type="range" id="wS" min="0" max="100"><span id="wSv"></span></label>
+    <label class="f">雜散 <input type="range" id="wSp" min="0" max="100"><span id="wSpv"></span></label>
+    <label class="f">穩定度 <input type="range" id="wSt" min="0" max="100"><span id="wStv"></span></label>
+  </div>
+</div>
+
+<h2>輸出與備份</h2>
+<div class="row">
+  <button id="xMd">📝 Markdown</button>
+  <button id="xPdf">📄 PDF（列印存成 PDF）</button>
+  <button id="xCsv">📊 CSV（回歸分析用）</button>
+  <button id="xJson">💾 備份 JSON</button>
+  <button id="xImp">📂 匯入 JSON</button>
+  <input type="file" id="impFile" accept=".json,application/json" hidden>
+</div>
+<div class="muted">PDF：按下後在列印視窗的「目的地」選「另存為 PDF」。JSON 含全部原始曲線，可在別台電腦匯入接著測。</div>
+
+<div id="report"></div>
+
+<script>
+'use strict';
+const $=id=>document.getElementById(id);
+const cv=$('cv'),ctx=cv.getContext('2d');
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+// ---------- 音名 / 調性 ----------
+const FL=['C','D♭','D','E♭','E','F','G♭','G','A♭','A','B♭','B'];
+const SOL=['Do','Do♯','Re','Re♯','Mi','Fa','Fa♯','Sol','Sol♯','La','La♯','Si'];
+const pc=m=>((m%12)+12)%12;
+const nm=m=>FL[pc(m)]+(Math.floor(m/12)-1);
+const solf=m=>SOL[pc(m)];
+let A4=440;   // 基準音高（A4 = ? Hz），可在畫面選擇
+const mf=m=>A4*Math.pow(2,(m-69)/12);
+const fm=f=>69+12*Math.log2(f/A4);
+const INSTS=[
+ {id:'C',label:'C 調（長笛、小提琴、鋼琴…）',t:0},
+ {id:'Bb',label:'B♭ 小號／豎笛／高音薩克斯風（聲音低 2 半音）',t:-2},
+ {id:'BbT',label:'B♭ 次中音薩克斯風（聲音低 14 半音）',t:-14},
+ {id:'EbA',label:'E♭ 中音薩克斯風（聲音低 9 半音）',t:-9},
+ {id:'EbB',label:'E♭ 上低音薩克斯風（聲音低 21 半音）',t:-21},
+ {id:'EbC',label:'E♭ 豎笛／高音小號（聲音高 3 半音）',t:3},
+ {id:'F',label:'F 法國號／英國管（聲音低 7 半音）',t:-7},
+ {id:'A',label:'A 調豎笛（聲音低 3 半音）',t:-3},
+ {id:'X',label:'自訂半音數',t:0}
+];
+const MCOL=['#22d3ee','#f59e0b','#a78bfa','#34d399','#f472b6','#60a5fa','#facc15','#fb7185'];
+const HMAX=12,KMAX=16;
+const uid=()=>Math.random().toString(36).slice(2,9);
+
+// ---------- 專案資料 ----------
+function newProj(){return{v:1,name:'未命名測試',cond:'',inst:'C',a4:440,tcus:0,transpose:0,mats:[],notes:[],weights:{h:40,s:40,sp:10,st:10},cur:{mat:null,midi:null}}}
+let proj=newProj();
+const curMat=()=>proj.mats.find(m=>m.id===proj.cur.mat)||null;
+function ensureNote(m,mi){return m.notes[mi]||(m.notes[mi]={takes:[],done:false})}
+function setTranspose(){A4=+proj.a4||440;const i=INSTS.find(x=>x.id===proj.inst)||INSTS[0];proj.transpose=i.id==='X'?(+proj.tcus||0):i.t}
+
+const DB={
+  open(){return new Promise((res,rej)=>{const r=indexedDB.open('osc-spectrum',1);r.onupgradeneeded=()=>r.result.createObjectStore('kv');r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})},
+  async get(k){const db=await this.open();return new Promise((res,rej)=>{const q=db.transaction('kv').objectStore('kv').get(k);q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error)})},
+  async set(k,v){const db=await this.open();return new Promise((res,rej)=>{const t=db.transaction('kv','readwrite');t.objectStore('kv').put(v,k);t.oncomplete=()=>res();t.onerror=()=>rej(t.error)})}
+};
+let saveT=0;
+function save(){clearTimeout(saveT);saveT=setTimeout(()=>{DB.set('proj',proj).catch(()=>{})},400)}
+let cache=new Map();
+function invalidate(){cache=new Map();save()}
+
+// ---------- 分析工具 ----------
+function medianOf(a){const c=Float32Array.from(a);c.sort();const h=c.length>>1;return c.length?(c.length%2?c[h]:(c[h-1]+c[h])/2):NaN}
+const mean=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:NaN;
+const sdev=a=>{if(a.length<2)return 0;const m=mean(a);return Math.sqrt(mean(a.map(x=>(x-m)*(x-m))))};
+const clamp=x=>Math.max(0,Math.min(100,x));
+function windowPeak(data,sr,f,tol){
+  const n=data.length,k=sr/2/n;
+  const lo=Math.max(1,Math.floor(f*(1-tol)/k)),hi=Math.min(n-2,Math.ceil(f*(1+tol)/k));
+  if(hi<lo)return{f,db:-200};
+  let mi=lo,mx=-1e9;for(let i=lo;i<=hi;i++)if(data[i]>mx){mx=data[i];mi=i}
+  const a=data[mi-1],b=data[mi],c=data[mi+1],den=a-2*b+c;let d=den?(a-c)/(2*den):0;if(Math.abs(d)>1)d=0;
+  return{f:(mi+d)*k,db:mx};
+}
+function domPeak(data,sr,fmax){
+  const k=sr/2/data.length,lo=Math.ceil(30/k),hi=Math.min(data.length-2,Math.floor(Math.min(fmax,sr/2)/k));
+  let mx=-1e9,mi=lo;for(let i=lo;i<=hi;i++)if(data[i]>mx){mx=data[i];mi=i}
+  return{f:mi*k,db:mx};
+}
+function promOf(data,k,f,f0,v){
+  const half=Math.max(0.5*f0,8*k);
+  const a=Math.max(0,Math.floor((f-half)/k)),b=Math.min(data.length-1,Math.ceil((f+half)/k));
+  return v-medianOf(data.subarray(a,b+1));
+}
+// 找出所有峰值，並分成泛音 / 雜散。ref = 基頻位準（dB），只看 ref-60 以上
+function peaksOf(data,sr,f0,ref,fmax){
+  const n=data.length,k=sr/2/n,lo=Math.max(4,Math.ceil(40/k)),hi=Math.min(n-4,Math.floor(Math.min(fmax,sr/2*0.98)/k));
+  const th=ref-60,out=[];let last=-99;
+  for(let i=lo;i<=hi;i++){
+    const v=data[i];if(v<th)continue;
+    let ok=true;for(let j=-3;j<=3;j++){if(j&&data[i+j]>v){ok=false;break}}
+    if(!ok||i-last<3)continue;
+    const a=data[i-1],c=data[i+1],den=a-2*v+c;let d=den?(a-c)/(2*den):0;if(Math.abs(d)>1)d=0;
+    const f=(i+d)*k;
+    if(promOf(data,k,f,f0,v)<10)continue;
+    const kk=Math.round(f/f0),hm=kk>=1&&Math.abs(f/(kk*f0)-1)<0.025;
+    out.push({f,db:v,k:kk,hm});last=i;
+  }
+  // 同一個次數只留最強的泛音
+  const best={};out.forEach(p=>{if(p.hm&&(!best[p.k]||p.db>best[p.k].db))best[p.k]=p});
+  return out.filter(p=>!p.hm||best[p.k]===p);
+}
+function metricsOf(curve,sr,f0){
+  const pk=peaksOf(curve,sr,f0,0,20000);
+  const hm=pk.filter(p=>p.hm&&p.k>=2),sp=pk.filter(p=>!p.hm);
+  const levels=[];
+  for(let kk=2;kk<=KMAX;kk++){const fk=kk*f0;if(fk>Math.min(20000,sr/2*0.98))break;const w=windowPeak(curve,sr,fk,0.025);levels.push({k:kk,f:w.f,db:w.db,present:hm.some(p=>p.k===kk)})}
+  const H=hm.filter(p=>p.db>-40).length;
+  const pw=hm.filter(p=>p.db>-60).reduce((s,p)=>s+Math.pow(10,p.db/10),0);
+  const S=pw>0?10*Math.log10(pw):-60;
+  const worst=sp.length?sp.reduce((a,b)=>a.db>b.db?a:b):null;
+  return{H,S,spurDb:worst?worst.db:-60,spurF:worst?worst.f:null,spurN:sp.length,levels,peaks:pk};
+}
+function resultOf(m,mi){
+  const n=m.notes[mi];if(!n||!n.takes.length)return null;
+  const key=m.id+':'+mi+':'+n.takes.length;
+  if(cache.has(key))return cache.get(key);
+  const first=n.takes[0],len=first.data.length,sr=first.sr;
+  const tk=n.takes.filter(t=>t.data.length===len&&t.sr===sr);
+  const saved=tk.map(t=>t.f0).filter(x=>x>30);
+  const f0exp=saved.length?medianOf(saved):mf(mi+proj.transpose);   // 用當時量到的基頻，改調性不影響舊資料
+  const norm=[],f0s=[];
+  tk.forEach(t=>{const w=windowPeak(t.data,sr,f0exp,0.06);if(w.db<-100)return;
+    const c=new Float32Array(len);for(let i=0;i<len;i++)c[i]=t.data[i]-w.db;norm.push(c);f0s.push(w.f)});
+  if(!norm.length){cache.set(key,null);return null}
+  const med=new Float32Array(len),col=new Float32Array(norm.length),h=norm.length>>1;
+  for(let i=0;i<len;i++){for(let j=0;j<norm.length;j++)col[j]=norm[j][i];col.sort();med[i]=norm.length%2?col[h]:(col[h-1]+col[h])/2}
+  const f0=medianOf(f0s);
+  const w0=windowPeak(med,sr,f0,0.03);for(let i=0;i<len;i++)med[i]-=w0.db;
+  const r=metricsOf(med,sr,f0);
+  let stab=null;
+  if(norm.length>=2){
+    const sds=[];
+    for(let kk=2;kk<=8;kk++){const fk=kk*f0;if(fk>Math.min(20000,sr/2*0.98))break;
+      sds.push(sdev(norm.map(c=>Math.max(-60,windowPeak(c,sr,fk,0.025).db))))}
+    stab=sds.length?mean(sds):null;
+  }
+  const res=Object.assign(r,{n:norm.length,f0,sr,curve:med,takeCurves:norm,stab,midi:mi});
+  cache.set(key,res);return res;
+}
+function subScores(r){return{h:clamp(r.H/HMAX*100),s:clamp((r.S+30)/40*100),sp:clamp((-r.spurDb-20)/40*100),st:r.stab==null?null:clamp((6-r.stab)/6*100)}}
+function total(r){
+  const s=subScores(r),w=proj.weights;let a=0,b=0;
+  [['h',w.h],['s',w.s],['sp',w.sp],['st',w.st]].forEach(([k,wt])=>{if(s[k]!=null){a+=s[k]*wt;b+=wt}});
+  return b?a/b:0;
+}
+const doneNotes=m=>Object.keys(m.notes).map(Number).filter(k=>m.notes[k].done&&m.notes[k].takes.length&&resultOf(m,k)).sort((a,b)=>a-b);
+function compare(){
+  const ms=proj.mats.filter(m=>doneNotes(m).length);
+  if(!ms.length)return null;
+  const common=doneNotes(ms[0]).filter(k=>ms.every(m=>doneNotes(m).includes(k)));
+  const use=ms.length>1&&common.length>0;
+  const rows=ms.map(m=>{
+    const ns=use?common:doneNotes(m),rs=ns.map(k=>resultOf(m,k)).filter(Boolean),tot=rs.map(total);
+    const stabs=rs.map(r=>r.stab).filter(x=>x!=null);
+    return{m,ns,tot,avg:mean(tot),min:Math.min(...tot),sd:sdev(tot),H:mean(rs.map(r=>r.H)),S:mean(rs.map(r=>r.S)),
+      spur:mean(rs.map(r=>r.spurDb)),stab:stabs.length?mean(stabs):null,wins:0};
+  });
+  if(use)common.forEach(k=>{let b=null,bs=-1;rows.forEach(r=>{const t=total(resultOf(r.m,k));if(t>bs){bs=t;b=r}});if(b)b.wins++});
+  rows.sort((a,b)=>b.avg-a.avg);
+  return{rows,common,use,ms};
+}
+
+// ---------- 繪圖 ----------
+function plot(c,W,H,o){
+  const th=o.light?{grid:'#e3e7ec',tx:'#566',bg:'#fff'}:{grid:'#1c2836',tx:'#7d93a8',bg:null};
+  const P={l:44,r:10,t:o.legend?32:12,b:24},FMIN=20,fmax=o.fmax;
+  const xOf=f=>P.l+Math.log(f/FMIN)/Math.log(fmax/FMIN)*(W-P.l-P.r);
+  const fOf=x=>FMIN*Math.pow(fmax/FMIN,(x-P.l)/(W-P.l-P.r));
+  const yOf=d=>P.t+(1-(d-o.bot)/(o.top-o.bot))*(H-P.t-P.b);
+  if(th.bg){c.fillStyle=th.bg;c.fillRect(0,0,W,H)}
+  c.font='11px system-ui';c.lineWidth=1;c.strokeStyle=th.grid;c.fillStyle=th.tx;c.textAlign='right';
+  for(let d=Math.ceil(o.bot/20)*20;d<=o.top;d+=20){const y=yOf(d);c.beginPath();c.moveTo(P.l,y);c.lineTo(W-P.r,y);c.stroke();c.fillText(d+'',P.l-5,y+4)}
+  c.textAlign='center';
+  [20,50,100,200,500,1000,2000,5000,10000,20000].filter(f=>f<=fmax).forEach(f=>{const x=xOf(f);c.beginPath();c.moveTo(x,P.t);c.lineTo(x,H-P.b);c.stroke();c.fillText(f>=1000?f/1000+'k':f,x,H-8)});
+  const y0=H-P.b;
+  o.curves.forEach(cu=>{
+    const n=cu.data.length,pts=[];
+    for(let x=P.l;x<=W-P.r;x++){
+      const f0=fOf(x),f1=fOf(x+1),kk=cu.sr/2/n;
+      let a=Math.max(0,Math.floor(f0/kk)),b=Math.min(n-1,Math.ceil(f1/kk)),m=-1e9;
+      if(b<a)b=a;for(let i=a;i<=b;i++)if(cu.data[i]>m)m=cu.data[i];
+      if(a===b){const pos=f0/kk,i=Math.floor(pos),t=pos-i;if(i+1<n)m=cu.data[i]*(1-t)+cu.data[i+1]*t}
+      pts.push([x,yOf(Math.min(o.top,Math.max(m,o.bot)))]);
+    }
+    if(!pts.length)return;
+    c.beginPath();pts.forEach(([x,y],i)=>i?c.lineTo(x,y):c.moveTo(x,y));
+    c.lineWidth=cu.lw||1.5;c.strokeStyle=cu.color;c.globalAlpha=cu.alpha==null?1:cu.alpha;c.lineJoin='round';c.stroke();
+    if(cu.fill>0){c.lineTo(pts[pts.length-1][0],y0);c.lineTo(pts[0][0],y0);c.closePath();
+      const g=c.createLinearGradient(0,P.t,0,y0);g.addColorStop(0,cu.color+Math.round(cu.fill*255).toString(16).padStart(2,'0'));g.addColorStop(1,cu.color+'00');c.fillStyle=g;c.fill()}
+    c.globalAlpha=1;
+  });
+  (o.vlines||[]).forEach(v=>{if(v.f>fmax)return;const x=xOf(v.f);c.save();c.setLineDash([5,4]);c.strokeStyle=v.color||'#facc15';c.lineWidth=1;c.beginPath();c.moveTo(x,P.t);c.lineTo(x,y0);c.stroke();c.restore();
+    c.fillStyle=v.color||'#facc15';c.textAlign='left';c.font='11px system-ui';c.fillText(v.label||'',x+4,P.t+10)});
+  c.textAlign='center';c.font='10px system-ui';
+  (o.marks||[]).forEach(p=>{if(p.f>fmax)return;const x=xOf(p.f),y=yOf(p.db);
+    c.fillStyle=p.color;c.beginPath();c.moveTo(x,y-3);c.lineTo(x-4,y-10);c.lineTo(x+4,y-10);c.fill();c.fillText(p.label,x,y-13)});
+  if(o.legend){let x=P.l;c.textAlign='left';c.font='12px system-ui';o.legend.forEach(l=>{c.fillStyle=l.color;c.fillRect(x,8,12,12);c.fillStyle=o.light?'#222':'#d7e3ee';c.fillText(l.name,x+16,18);x+=22+c.measureText(l.name).width+12})}
+  return{xOf,fOf,yOf,P};
+}
+
+// ---------- 音訊 ----------
+let ac,an,srcNode,stream,mediaSrc,mode=null,frozen=false,peakHold=false,peakData=null,live=null;
+let W=0,H=0,dpr=1,cursorX=null,view='live',lastMap=null,liveMarks=[],frameNo=0;
+function resize(){dpr=devicePixelRatio||1;const r=cv.getBoundingClientRect();W=r.width;H=r.height;cv.width=W*dpr;cv.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0)}
+addEventListener('resize',resize);
+const fmaxv=()=>+$('fmax').value,dbmin=()=>+$('dbmin').value;
+async function ensureCtx(){
+  if(!ac){ac=new (window.AudioContext||window.webkitAudioContext)();an=ac.createAnalyser();applyAn()}
+  if(ac.state==='suspended')await ac.resume();
+}
+function applyAn(){if(!an)return;an.fftSize=+$('fft').value;an.smoothingTimeConstant=+$('sm').value/100;an.minDecibels=-140;an.maxDecibels=0;live=null;peakData=null}
+$('fft').onchange=applyAn;$('sm').oninput=applyAn;
+function detach(){try{srcNode&&srcNode.disconnect()}catch(e){}try{an&&an.disconnect()}catch(e){}srcNode=null;if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}}
+function setMode(m){mode=m;resetAuto();$('bMic').classList.toggle('on',m==='mic');$('bFile').classList.toggle('on',m==='file');$('aud').style.display=m==='file'?'block':'none';$('hint').style.display='none';resize()}
+$('bMic').onclick=async()=>{try{await ensureCtx();$('aud').pause();detach();
+  stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+  srcNode=ac.createMediaStreamSource(stream);srcNode.connect(an);setMode('mic')}catch(e){alert('無法開啟麥克風：'+e.message)}};
+$('bFile').onclick=()=>$('file').click();
+$('file').onchange=async e=>{const f=e.target.files[0];if(!f)return;await ensureCtx();detach();
+  const a=$('aud');a.loop=true;a.src=URL.createObjectURL(f);if(!mediaSrc)mediaSrc=ac.createMediaElementSource(a);
+  srcNode=mediaSrc;srcNode.connect(an);an.connect(ac.destination);setMode('file');a.play().catch(()=>{});e.target.value=''};
+$('aud').addEventListener('play',()=>ac&&ac.resume());
+$('bFreeze').onclick=e=>{frozen=!frozen;e.target.classList.toggle('on',frozen);e.target.textContent=frozen?'▶ 繼續':'⏸ 凍結'};
+$('bPeak').onclick=e=>{peakHold=!peakHold;peakData=null;e.target.classList.toggle('on',peakHold)};
+
+// ---------- 自動記錄（以「目標音」為準） ----------
+let auto=true,armed=true,quietSince=0,aStart=0,aRef=0,aAcc=null,aN=0,aLost=0,aProg=0,msg='',msgUntil=0,msgBad=false,heard='',recUntil=0,recN=0,recAcc=null;
+function flash(t,bad){msg=t;msgBad=!!bad;msgUntil=performance.now()+1800}
+function resetAuto(){armed=true;aStart=0;aProg=0;quietSince=0;aLost=0}
+$('bAuto').onclick=e=>{auto=!auto;resetAuto();e.target.classList.toggle('on',auto);e.target.textContent=auto?'🤖 自動記錄：開':'🤖 自動記錄：關'};
+$('bRec').onclick=()=>{if(!an||!live){flash('先開啟聲音來源',true);return}if(!canRecord())return;recUntil=performance.now()+600;recN=0;recAcc=new Float64Array(live.length)};
+function canRecord(){if(!curMat()){flash('先新增材質',true);return false}if(proj.cur.midi==null){flash('先加入並選一個測試音',true);return false}return true}
+function addTake(acc,n,sr,f0){
+  const m=curMat(),mi=proj.cur.midi;if(!m||mi==null)return;
+  const d=new Float32Array(acc.length);for(let i=0;i<d.length;i++)d[i]=10*Math.log10(Math.max(acc[i]/n,1e-14));
+  const nt=ensureNote(m,mi);nt.takes.push({sr,data:d,f0,t:Date.now()});
+  invalidate();renderAll();flash('✓ 第 '+nt.takes.length+' 次已記錄');
+  try{navigator.vibrate&&navigator.vibrate(60)}catch(e){}
+}
+function autoStep(now,sr){
+  const m=curMat(),mi=proj.cur.midi;heard='';
+  if(!m||mi==null){aProg=0;aStart=0;return}
+  const f0=mf(mi+proj.transpose);
+  if(f0<30||f0>sr/2*0.5){aProg=0;return}
+  const pk=windowPeak(live,sr,f0,0.06),dm=domPeak(live,sr,fmaxv()),thr=+$('trig').value;
+  const ok=pk.db>thr&&pk.db>=dm.db-35;
+  if(!ok&&dm.db>thr)heard='聽到 '+nm(Math.round(fm(dm.f)))+'（'+dm.f.toFixed(0)+' Hz），不是目標音 '+nm(mi+proj.transpose);
+  if(!auto){aProg=0;aStart=0;return}
+  if(!armed){
+    if(!ok){if(!quietSince)quietSince=now;if(now-quietSince>300)armed=true}else quietSince=0;
+    if(!armed){aProg=0;return}
+  }
+  if(ok&&(aStart===0||Math.abs(Math.log2(pk.f/aRef))<0.02)){
+    aLost=0;
+    if(aStart===0){aStart=now;aRef=pk.f;aAcc=new Float64Array(live.length);aN=0}
+    if(now-aStart>300){for(let i=0;i<live.length;i++)aAcc[i]+=Math.pow(10,live[i]/10);aN++}
+    aProg=Math.min(1,(now-aStart)/1000);
+    if(now-aStart>=1000&&aN>0){addTake(aAcc,aN,sr,aRef);armed=false;aStart=0;aProg=0;quietSince=0}
+  }else if(aStart!==0){if(!aLost)aLost=now;if(now-aLost>150){aStart=0;aLost=0;aProg=0}}
+  else aProg=0;
+}
+
+// ---------- 操作：材質 / 測試音 / 完成 ----------
+function finishNote(){
+  const m=curMat(),mi=proj.cur.midi;if(!m||mi==null){flash('先選材質與測試音',true);return}
+  const n=m.notes[mi];if(!n||!n.takes.length){flash('這個音還沒有記錄任何一次',true);return}
+  n.done=true;invalidate();
+  const open=x=>!(m.notes[x]&&m.notes[x].done);
+  const idx=proj.notes.indexOf(mi);
+  const order=proj.notes.slice(idx+1).concat(proj.notes.slice(0,idx+1));
+  const nx=order.find(open);
+  flash(nx==null?'✓ '+solf(mi)+' 完成，全部音都測完了':'✓ '+solf(mi)+' 完成（'+n.takes.length+' 次）');
+  if(nx!=null)selectNote(nx);else renderAll();
+}
+function selectNote(mi){proj.cur.midi=mi;resetAuto();save();renderAll()}
+function nextNote(){if(!proj.notes.length)return;const i=proj.notes.indexOf(proj.cur.midi);selectNote(proj.notes[(i+1)%proj.notes.length])}
+function undoTake(){const m=curMat(),mi=proj.cur.midi;if(!m||mi==null)return;const n=m.notes[mi];if(!n||!n.takes.length)return;n.takes.pop();if(!n.takes.length)n.done=false;invalidate();renderAll();flash('已刪掉最後一次')}
+$('bDone').onclick=finishNote;$('bUndo').onclick=undoTake;$('bNext').onclick=nextNote;
+addEventListener('keydown',e=>{
+  const t=e.target.tagName;if(t==='INPUT'||t==='TEXTAREA'||t==='SELECT')return;
+  if(e.code==='Space'){e.preventDefault();finishNote()}
+  else if(e.key==='n'||e.key==='N')nextNote();
+  else if(e.key==='z'||e.key==='Z')undoTake();
+});
+$('mAdd').onclick=()=>{const n=prompt('材質名稱（例如：銀、黃銅、白銅）');if(!n||!n.trim())return;
+  const m={id:uid(),name:n.trim(),attrs:'',notes:{}};proj.mats.push(m);proj.cur.mat=m.id;resetAuto();save();renderAll()};
+$('mRen').onclick=()=>{const m=curMat();if(!m)return;const n=prompt('新名稱',m.name);if(n&&n.trim()){m.name=n.trim();save();renderAll()}};
+$('mDel').onclick=()=>{const m=curMat();if(!m)return;
+  if(!confirm('刪除材質「'+m.name+'」和它所有的記錄？（無法復原，建議先備份 JSON）'))return;
+  proj.mats=proj.mats.filter(x=>x!==m);proj.cur.mat=proj.mats.length?proj.mats[0].id:null;invalidate();renderAll()};
+$('mSel').onchange=e=>{proj.cur.mat=e.target.value;resetAuto();save();renderAll()};
+$('mAttrs').oninput=e=>{const m=curMat();if(m){m.attrs=e.target.value;save()}};
+$('cond').oninput=e=>{proj.cond=e.target.value;save()};
+$('pname').oninput=e=>{proj.name=e.target.value;save()};
+$('inst').onchange=e=>{proj.inst=e.target.value;if(proj.inst==='X')proj.tcus=proj.transpose;setTranspose();invalidate();resetAuto();renderAll()};
+$('a4').onchange=e=>{proj.a4=+e.target.value;setTranspose();invalidate();resetAuto();renderAll()};
+$('tcus').oninput=e=>{proj.tcus=+e.target.value||0;setTranspose();invalidate();renderChips();renderStatus();renderNoteCard();renderCmp()};
+function addNote(mi){if(proj.notes.includes(mi))return;proj.notes.push(mi);proj.notes.sort((a,b)=>a-b);if(proj.cur.midi==null)proj.cur.midi=mi}
+$('nAdd').onclick=()=>{const mi=+$('nOct').value*12+12+(+$('nName').value);addNote(mi);selectNote(mi)};
+$('nDoSi').onclick=()=>{const base=+$('nOct').value*12+12;[0,2,4,5,7,9,11].forEach(p=>addNote(base+p));selectNote(base)};
+[['wH','h'],['wS','s'],['wSp','sp'],['wSt','st']].forEach(([id,k])=>{$(id).oninput=e=>{proj.weights[k]=+e.target.value;$(id+'v').textContent=e.target.value;save();renderCmp();renderNoteCard()}});
+document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{view=b.dataset.v;document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b))});
+
+// ---------- 畫面 ----------
+function renderSel(){
+  $('pname').value=proj.name;$('cond').value=proj.cond||'';
+  $('inst').innerHTML=INSTS.map(i=>'<option value="'+i.id+'"'+(i.id===proj.inst?' selected':'')+'>'+esc(i.label)+'</option>').join('');
+  $('a4').innerHTML=[415,430,432,438,440,441,442,443,444,445].map(v=>'<option value="'+v+'"'+(v===+proj.a4?' selected':'')+'>'+v+'</option>').join('');
+  $('tcusW').hidden=false;$('tcus').value=proj.transpose;$('tcus').disabled=proj.inst!=='X';
+  $('mSel').innerHTML=proj.mats.length?proj.mats.map(m=>'<option value="'+m.id+'"'+(m.id===proj.cur.mat?' selected':'')+'>'+esc(m.name)+'</option>').join(''):'<option>（還沒有材質）</option>';
+  const m=curMat();$('mAttrs').value=m?m.attrs||'':'';$('mAttrs').disabled=!m;
+  [['wH','h'],['wS','s'],['wSp','sp'],['wSt','st']].forEach(([id,k])=>{$(id).value=proj.weights[k];$(id+'v').textContent=proj.weights[k]});
+}
+function renderChips(){
+  const m=curMat(),box=$('chips');box.innerHTML='';
+  if(!proj.notes.length){box.innerHTML='<span class="muted">還沒有測試音，從下面選音名加入</span>';return}
+  proj.notes.forEach(mi=>{
+    const n=m&&m.notes[mi],c=document.createElement('span');
+    c.className='chip'+(mi===proj.cur.midi?' cur':'')+(n&&n.done?' fin':'');
+    c.innerHTML=solf(mi)+' <small>'+nm(mi).replace('♭','♭')+'</small><small>'+(n?(n.done?'✓ ':'')+n.takes.length+' 次':'')+'</small><i title="移除這個測試音">✕</i>';
+    c.onclick=()=>selectNote(mi);
+    c.querySelector('i').onclick=ev=>{ev.stopPropagation();
+      const has=proj.mats.some(x=>x.notes[mi]&&x.notes[mi].takes.length);
+      if(has&&!confirm('「'+solf(mi)+'」已有記錄，只會從清單移除，記錄仍保留在材質裡。確定？'))return;
+      proj.notes=proj.notes.filter(x=>x!==mi);if(proj.cur.midi===mi)proj.cur.midi=proj.notes[0]??null;save();renderAll()};
+    box.appendChild(c);
+  });
+}
+function renderStatus(){
+  const m=curMat(),mi=proj.cur.midi,el=$('tgt');
+  if(mi==null){el.innerHTML='<span class="muted">尚未選擇目標音</span>';return}
+  const sm=mi+proj.transpose,n=m&&m.notes[mi];
+  el.innerHTML='目前：<b>'+esc(m?m.name:'（無材質）')+'</b> · 寫譜 <b>'+solf(mi)+'（'+nm(mi)+'）</b> → 實際聲音 <b>'+nm(sm)+'</b> '+mf(sm).toFixed(1)+' Hz · 已吹 <b>'+(n?n.takes.length:0)+'</b> 次'+(n&&n.done?' <span class="best">✓ 已完成</span>':'');
+}
+function fmt(x,d){return x==null||isNaN(x)?'—':(+x).toFixed(d)}
+function renderNoteCard(){
+  const m=curMat(),mi=proj.cur.midi,el=$('noteCard');
+  if(!m||mi==null){el.innerHTML='<span class="muted">選好材質和測試音後，這裡會顯示每次吹奏與這個音的分析</span>';return}
+  const n=m.notes[mi],r=n&&n.takes.length?resultOf(m,mi):null;
+  if(!r){el.innerHTML='<span class="muted">這個音還沒有記錄。吹穩 1 秒就會自動記一次。</span>';return}
+  const s=subScores(r),tot=total(r);
+  let h='<div class="takes">'+n.takes.map((t,i)=>'<span class="take">第 '+(i+1)+' 次 · '+t.f0.toFixed(1)+' Hz <b data-i="'+i+'" title="刪除這一次">✕</b></span>').join('')+'</div>';
+  h+='<table><tr><th>項目</th><th class="n">數值</th><th class="n">分項分數</th></tr>'+
+   '<tr><td>基頻（中位數）</td><td class="n">'+r.f0.toFixed(1)+' Hz</td><td></td></tr>'+
+   '<tr><td>泛音數（強度 > -40 dBc）</td><td class="n">'+r.H+' 個</td><td class="n">'+fmt(s.h,0)+'</td></tr>'+
+   '<tr><td>泛音強度（泛音總能量相對基頻）</td><td class="n">'+fmt(r.S,1)+' dB</td><td class="n">'+fmt(s.s,0)+'</td></tr>'+
+   '<tr><td>最強雜散</td><td class="n">'+fmt(r.spurDb,0)+' dBc'+(r.spurF?'（'+r.spurF.toFixed(0)+' Hz）':'')+' · '+r.spurN+' 個</td><td class="n">'+fmt(s.sp,0)+'</td></tr>'+
+   '<tr><td>穩定度（幾次之間的泛音差）</td><td class="n">'+(r.stab==null?'需 2 次以上':fmt(r.stab,1)+' dB')+'</td><td class="n">'+fmt(s.st,0)+'</td></tr>'+
+   '<tr><td><b>單音總分</b></td><td></td><td class="n"><b>'+fmt(tot,1)+'</b></td></tr></table>';
+  h+='<div class="muted" style="margin-top:6px">泛音：'+r.levels.filter(l=>l.present).map(l=>l.k+'×='+l.db.toFixed(0)+'dBc').join('、')+'</div>';
+  el.innerHTML=h;
+  el.querySelectorAll('.take b').forEach(b=>b.onclick=()=>{n.takes.splice(+b.dataset.i,1);if(!n.takes.length)n.done=false;invalidate();renderAll()});
+}
+function heat(v){return 'background:hsla('+Math.round(v*1.2)+',60%,38%,.55)'}
+function renderCmp(){
+  const el=$('cmp'),c=compare();
+  if(!c){el.innerHTML='<span class="muted">每個音按「完成」後，這裡會比較各材質。至少要有一個材質完成一個音。</span>';return}
+  let h='';
+  if(c.ms.length<2)h+='<div class="muted">目前只有一個材質有完成的音，再測另一個材質才能比較。</div>';
+  else if(!c.use)h+='<div class="bad">兩個材質沒有共同完成的音，無法公平比較；下面只列各自平均。</div>';
+  else h+='<div class="muted">共同完成的音 '+c.common.length+' 個：'+c.common.map(k=>solf(k)).join('、')+'（只用這些音排名）</div>';
+  h+='<table><tr><th>名次</th><th>材質</th><th class="n">綜合分</th><th class="n">平均泛音數</th><th class="n">泛音強度 dB</th><th class="n">雜散 dBc</th><th class="n">穩定度 dB</th><th class="n">最低音分</th><th class="n">音間落差</th><th class="n">單音第一</th></tr>';
+  c.rows.forEach((r,i)=>{h+='<tr><td>'+(i+1)+'</td><td><span style="color:'+MCOL[proj.mats.indexOf(r.m)%8]+'">●</span> '+esc(r.m.name)+'</td><td class="n"><b'+(i===0&&c.rows.length>1?' class="best"':'')+'>'+fmt(r.avg,1)+'</b></td><td class="n">'+fmt(r.H,1)+'</td><td class="n">'+fmt(r.S,1)+'</td><td class="n">'+fmt(r.spur,0)+'</td><td class="n">'+fmt(r.stab,1)+'</td><td class="n">'+fmt(r.min,0)+'</td><td class="n">'+fmt(r.sd,1)+'</td><td class="n">'+(c.use?r.wins:'—')+'</td></tr>'});
+  h+='</table>';
+  const ks=c.use?c.common:[...new Set(c.ms.flatMap(doneNotes))].sort((a,b)=>a-b);
+  h+='<div class="muted" style="margin-top:10px">各音單音總分（綠＝高分；粗體＝該音最佳）</div><table><tr><th>音（寫譜 → 聲音）</th>'+c.rows.map(r=>'<th class="n">'+esc(r.m.name)+'</th>').join('')+'</tr>';
+  ks.forEach(k=>{
+    const sc=c.rows.map(r=>r.m.notes[k]&&r.m.notes[k].done?total(resultOf(r.m,k)):null),best=Math.max(...sc.filter(x=>x!=null));
+    h+='<tr><td>'+solf(k)+'（'+nm(k)+'）→ '+nm(k+proj.transpose)+'</td>'+sc.map(v=>v==null?'<td class="n muted">—</td>':'<td class="n" style="'+heat(v)+'">'+(v===best&&sc.filter(x=>x!=null).length>1?'<b>'+fmt(v,1)+'</b>':fmt(v,1))+'</td>').join('')+'</tr>'});
+  el.innerHTML=h+'</table>';
+}
+function renderAll(){renderSel();renderChips();renderStatus();renderNoteCard();renderCmp()}
+
+// ---------- 主迴圈 ----------
+function frame(){
+  requestAnimationFrame(frame);frameNo++;
+  if(!W)return;
+  ctx.clearRect(0,0,W,H);
+  const sr=ac?ac.sampleRate:48000,now=performance.now(),m=curMat(),mi=proj.cur.midi,tr=proj.transpose;
+  if(an&&mode&&!frozen){
+    const arr=new Float32Array(an.frequencyBinCount);an.getFloatFrequencyData(arr);if(arr[0]>-Infinity)live=arr;
+    if(recUntil>0&&live){for(let i=0;i<live.length;i++)recAcc[i]+=Math.pow(10,live[i]/10);recN++;
+      if(now>=recUntil){recUntil=0;const w=mi!=null?windowPeak(live,sr,mf(mi+tr),0.06):{f:0};addTake(recAcc,recN,sr,w.f)}}
+    if(live)autoStep(now,sr);
+    if(peakHold&&live){if(!peakData||peakData.length!==live.length)peakData=Float32Array.from(live);else for(let i=0;i<live.length;i++)if(live[i]>peakData[i])peakData[i]=live[i]}
+  }
+  const f0t=mi!=null?mf(mi+tr):null;
+  let o={fmax:fmaxv(),curves:[],top:-10,bot:dbmin(),vlines:[],marks:[]},unit='dB';
+  if(view==='live'){
+    if(peakHold&&peakData)o.curves.push({data:peakData,sr,color:'#ffffff',lw:1,fill:0});
+    if(live)o.curves.push({data:live,sr,color:'#22d3ee',lw:2,fill:.35});
+    if(f0t){o.vlines.push({f:f0t,label:'目標 '+nm(mi+tr)});
+      if(live&&frameNo%5===0){const w=windowPeak(live,sr,f0t,0.06);liveMarks=w.db>+$('trig').value-10?peaksOf(live,sr,f0t,w.db,fmaxv()).map(p=>({f:p.f,db:p.db,color:p.hm?'#22d3ee':'#ff5d6c',label:p.hm?(p.k>1?p.k+'×':'f0'):'雜'})):[]}
+      o.marks=liveMarks}
+  }else{
+    o.top=5;o.bot=-80;unit='dBc';
+    if(view==='single'&&m&&mi!=null){
+      const r=resultOf(m,mi);const col=MCOL[proj.mats.indexOf(m)%8];
+      if(r){r.takeCurves.forEach(c=>o.curves.push({data:c,sr:r.sr,color:col,lw:1,alpha:.3,fill:0}));
+        o.curves.push({data:r.curve,sr:r.sr,color:col,lw:2.5,fill:.3});
+        o.marks=r.peaks.map(p=>({f:p.f,db:p.db,color:p.hm?'#22d3ee':'#ff5d6c',label:p.hm?(p.k>1?p.k+'×':'f0'):'雜'}));
+        o.vlines.push({f:r.f0,label:'f0 '+r.f0.toFixed(0)+' Hz',color:'#facc1599'})}
+    }else if(view==='cmp'&&mi!=null){
+      o.legend=[];
+      proj.mats.forEach((mm,i)=>{const r=resultOf(mm,mi);if(!r)return;const col=MCOL[i%8],dn=mm.notes[mi].done;
+        o.curves.push({data:r.curve,sr:r.sr,color:col,lw:2,fill:.12});o.legend.push({name:mm.name+(dn?'':'（未完成）')+' ×'+r.n,color:col})});
+      if(f0t)o.vlines.push({f:f0t,label:solf(mi)+' '+nm(mi+tr)});
+    }
+  }
+  lastMap=plot(ctx,W,H,o);
+  const P=lastMap.P;
+  ctx.textAlign='right';ctx.font='12px system-ui';
+  if(recUntil>0){ctx.fillStyle='#fbbf24';ctx.fillText('記錄中…',W-14,P.t+14)}
+  else if(view==='live'&&aProg>0){ctx.fillStyle='#fbbf24';ctx.fillText('聽到穩定聲音… '+aProg.toFixed(1)+' / 1.0 s',W-14,P.t+14);
+    ctx.fillStyle='#fbbf2455';ctx.fillRect(W-154,P.t+20,140,4);ctx.fillStyle='#fbbf24';ctx.fillRect(W-154,P.t+20,140*aProg,4)}
+  else if(view==='live'&&heard){ctx.fillStyle='#ff9f6c';ctx.fillText(heard,W-14,P.t+14)}
+  if(now<msgUntil){ctx.textAlign='center';ctx.font='bold '+(W<500?15:22)+'px system-ui';ctx.fillStyle=msgBad?'#ff5d6c':'#34d399';ctx.fillText(msg,(W+P.l)/2,P.t+44)}
+  const ro=$('readout');
+  if(cursorX!==null&&lastMap){
+    const f=lastMap.fOf(cursorX);ctx.strokeStyle='#ffffff55';ctx.beginPath();ctx.moveTo(cursorX,P.t);ctx.lineTo(cursorX,H-P.b);ctx.stroke();
+    const mm=fm(f),wm=Math.round(mm)-tr;
+    let t=(f<1000?f.toFixed(0)+' Hz':(f/1000).toFixed(2)+' kHz')+' · 聲音 '+nm(Math.round(mm))+' · 寫譜 '+solf(wm)+'（'+nm(wm)+'）';
+    o.curves.filter(c=>(c.alpha==null)).forEach((c,i)=>{const kk=c.sr/2/c.data.length,a=Math.max(0,Math.floor(lastMap.fOf(cursorX-3)/kk)),b=Math.max(a,Math.ceil(lastMap.fOf(cursorX+3)/kk));let v=-1e9;for(let j=a;j<=b&&j<c.data.length;j++)v=Math.max(v,c.data[j]);t+=' · '+v.toFixed(0)+' '+unit});
+    ro.style.display='block';ro.textContent=t;
+  }else ro.style.display='none';
+}
+const setCur=e=>{const r=cv.getBoundingClientRect(),x=e.clientX-r.left;cursorX=lastMap&&x>=lastMap.P.l&&x<=W-lastMap.P.r?x:null};
+cv.addEventListener('pointermove',setCur);cv.addEventListener('pointerdown',setCur);cv.addEventListener('pointerleave',()=>cursorX=null);
+
+// ---------- 報告 / 匯出 ----------
+function tpe(){const d=new Date(Date.now()+8*3600e3);return d.toISOString().slice(0,16).replace('T',' ')}
+function stamp(){return tpe().replace(/[-: ]/g,'').replace(/^(\d{8})(\d{4})$/,'$1_$2')}
+function parseAttrs(t){const o=[];String(t||'').split(/\r?\n/).forEach(l=>{const mm=l.match(/^\s*([^:：]+?)\s*[:：]\s*(.+)$/);if(mm)o.push([mm[1],mm[2]]);else if(l.trim())o.push(['備註',l.trim()])});return o}
+function instLabel(){const i=INSTS.find(x=>x.id===proj.inst)||INSTS[0];return proj.inst==='X'?'自訂（聲音比寫譜 '+proj.transpose+' 半音）':i.label}
+function reportModel(){
+  const c=compare();if(!c)return null;
+  const W_=proj.weights,model={c,sec:[]};
+  const ks=c.use?c.common:[...new Set(c.ms.flatMap(doneNotes))].sort((a,b)=>a-b);
+  model.ks=ks;return model;
+}
+function mdTable(hd,rows){return '| '+hd.join(' | ')+' |\n|'+hd.map(()=>'---').join('|')+'|\n'+rows.map(r=>'| '+r.join(' | ')+' |').join('\n')+'\n'}
+function htmlTable(hd,rows){return '<table><tr>'+hd.map(x=>'<th>'+esc(x)+'</th>').join('')+'</tr>'+rows.map(r=>'<tr>'+r.map(x=>'<td>'+esc(x)+'</td>').join('')+'</tr>').join('')+'</table>'}
+function reportParts(){
+  const mdl=reportModel();if(!mdl)return null;
+  const {c,ks}=mdl,w=proj.weights,out={};
+  out.head=[['日期（台北時間）',tpe()],['樂器調性',instLabel()],['基準音高','A4 = '+proj.a4+' Hz'],['材質',c.ms.map(m=>m.name).join('、')],['比較用的音',(c.use?c.common:ks).map(k=>solf(k)+'（'+nm(k)+' → '+nm(k+proj.transpose)+'）').join('、')],['測試條件',proj.cond?proj.cond.replace(/\r?\n/g,'；'):'（未填）']];
+  out.attrs=c.ms.map(m=>[m.name,parseAttrs(m.attrs).map(([k,v])=>k+'：'+v).join('；')||'（未填）']);
+  out.rank={hd:['名次','材質','綜合分','平均泛音數','泛音強度 dB','雜散 dBc','穩定度 dB','最低音分','音間落差','單音第一'],
+    rows:c.rows.map((r,i)=>[i+1,r.m.name,fmt(r.avg,1),fmt(r.H,1),fmt(r.S,1),fmt(r.spur,0),fmt(r.stab,1),fmt(r.min,0),fmt(r.sd,1),c.use?r.wins:'—'])};
+  const top=c.rows[0],most=[...c.rows].sort((a,b)=>b.H-a.H)[0],cln=[...c.rows].sort((a,b)=>a.spur-b.spur)[0],stb=c.rows.filter(r=>r.stab!=null).sort((a,b)=>a.stab-b.stab)[0];
+  out.concl=['綜合分最高：'+top.m.name+'（'+fmt(top.avg,1)+' 分）','平均泛音數最多：'+most.m.name+'（'+fmt(most.H,1)+' 個）','雜散最乾淨：'+cln.m.name+'（'+fmt(cln.spur,0)+' dBc）'].concat(stb?['最穩定：'+stb.m.name+'（'+fmt(stb.stab,1)+' dB）']:[]);
+  out.notes=ks.map(k=>{
+    const rows=c.rows.map(r=>({r,res:r.m.notes[k]&&r.m.notes[k].done?resultOf(r.m,k):null})).filter(x=>x.res);
+    return{k,title:solf(k)+'（寫 '+nm(k)+' → 聲音 '+nm(k+proj.transpose)+'，'+mf(k+proj.transpose).toFixed(1)+' Hz）',
+      hd:['材質','吹奏次數','基頻 Hz','泛音數','泛音強度 dB','最強雜散 dBc','穩定度 dB','單音總分'],
+      rows:rows.map(({r,res})=>[r.m.name,res.n,res.f0.toFixed(1),res.H,fmt(res.S,1),fmt(res.spurDb,0),fmt(res.stab,1),fmt(total(res),1)]),
+      lhd:['材質'].concat(Array.from({length:11},(_,i)=>(i+2)+'×')),
+      lrows:rows.map(({r,res})=>[r.m.name].concat(Array.from({length:11},(_,i)=>{const l=res.levels.find(x=>x.k===i+2);return l?(l.present?'':'(')+l.db.toFixed(0)+(l.present?'':')'):'—'}))),
+      curves:rows.map(({r,res})=>({data:res.curve,sr:res.sr,color:MCOL[proj.mats.indexOf(r.m)%8],lw:2,fill:.1,name:r.m.name}))};
+  });
+  out.method=['每個音：同一個音吹多次，每次先把基頻對齊成 0 dB（排除吹得大小聲），再逐頻率取中位數，得到代表曲線。','泛音數：2–16 次泛音中，強度在基頻下 40 dB 以內、且比周圍底噪高 10 dB 以上的個數（滿分 '+HMAX+' 個）。','泛音強度：泛音總能量相對基頻的 dB（-30 dB 得 0 分，+10 dB 得 100 分）。','雜散：非基頻整數倍（±2.5%）的最強峰值（-20 dBc 得 0 分，-60 dBc 或沒有得 100 分）。','穩定度：2–8 次泛音在各次吹奏之間的標準差平均（6 dB 得 0 分，0 dB 得 100 分；只吹 1 次則不計）。','權重：泛音數 '+w.h+'、泛音強度 '+w.s+'、雜散 '+w.sp+'、穩定度 '+w.st+'。材質綜合分 ＝ 比較用各音單音總分的平均。','括號內的泛音數值＝沒偵測到明顯峰值，只是該頻率的底噪位準。'];
+  return out;
+}
+function buildMarkdown(){
+  const R=reportParts();if(!R)return null;
+  let s='# '+proj.name+' — 材質泛音比較報告\n\n'+R.head.map(([k,v])=>'- **'+k+'**：'+v).join('\n')+'\n\n## 材質屬性\n\n'+R.attrs.map(([k,v])=>'- **'+k+'**：'+v).join('\n')+'\n\n## 總排名\n\n'+mdTable(R.rank.hd,R.rank.rows)+'\n'+R.concl.map(x=>'- '+x).join('\n')+'\n\n## 各音比較\n';
+  R.notes.forEach(n=>{s+='\n### '+n.title+'\n\n'+mdTable(n.hd,n.rows)+'\n泛音相對基頻（dBc）：\n\n'+mdTable(n.lhd,n.lrows)});
+  return s+'\n## 評分方式\n\n'+R.method.map(x=>'- '+x).join('\n')+'\n';
+}
+function buildReportHtml(){
+  const R=reportParts();if(!R)return null;
+  let h='<h1>'+esc(proj.name)+' — 材質泛音比較報告</h1>'+R.head.map(([k,v])=>'<div><b>'+esc(k)+'</b>：'+esc(v)+'</div>').join('')+
+   '<h2>材質屬性</h2>'+R.attrs.map(([k,v])=>'<div><b>'+esc(k)+'</b>：'+esc(v)+'</div>').join('')+
+   '<h2>總排名</h2>'+htmlTable(R.rank.hd,R.rank.rows)+'<ul>'+R.concl.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul><h2>各音比較</h2>';
+  R.notes.forEach(n=>{
+    const cv2=document.createElement('canvas');cv2.width=1800;cv2.height=640;const c2=cv2.getContext('2d');c2.scale(2,2);
+    plot(c2,900,320,{light:true,fmax:20000,top:5,bot:-80,curves:n.curves,legend:n.curves.map(c=>({name:c.name,color:c.color}))});
+    h+='<h3>'+esc(n.title)+'</h3><img src="'+cv2.toDataURL('image/png')+'">'+htmlTable(n.hd,n.rows)+'<div class="muted">泛音相對基頻（dBc）</div>'+htmlTable(n.lhd,n.lrows);
+  });
+  return h+'<h2>評分方式</h2><ul>'+R.method.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul>';
+}
+function download(name,text,type){const b=new Blob([text],{type});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),2000)}
+const fname=()=>(proj.name||'報告').replace(/[\\/:*?"<>|]/g,'_')+'_'+stamp();
+$('xMd').onclick=()=>{const s=buildMarkdown();if(!s){alert('還沒有完成的音可以輸出');return}download(fname()+'.md',s,'text/markdown;charset=utf-8')};
+$('xPdf').onclick=()=>{const h=buildReportHtml();if(!h){alert('還沒有完成的音可以輸出');return}
+  $('report').innerHTML=h;const old=document.title;document.title=fname();
+  const done=()=>{document.title=old;$('report').innerHTML='';removeEventListener('afterprint',done)};addEventListener('afterprint',done);
+  setTimeout(()=>window.print(),150)};
+$('xCsv').onclick=()=>{
+  const rows=[],keys=[];
+  proj.mats.forEach(m=>parseAttrs(m.attrs).forEach(([k])=>{if(!keys.includes(k))keys.push(k)}));
+  const hd=['專案','材質'].concat(keys,['寫譜音','唱名','聲音音名','基頻Hz','吹奏次數','泛音數','泛音強度dB','最強雜散dBc','雜散頻率Hz','雜散個數','穩定度dB','分項_泛音數','分項_泛音強度','分項_雜散','分項_穩定','單音總分'],Array.from({length:15},(_,i)=>'h'+(i+2)+'_dBc'));
+  proj.mats.forEach(m=>{const at=Object.fromEntries(parseAttrs(m.attrs));
+    doneNotes(m).forEach(k=>{const r=resultOf(m,k);if(!r)return;const s=subScores(r);
+      rows.push([proj.name,m.name].concat(keys.map(x=>at[x]||''),[nm(k),solf(k),nm(k+proj.transpose),r.f0.toFixed(2),r.n,r.H,r.S.toFixed(2),r.spurDb.toFixed(1),r.spurF?r.spurF.toFixed(1):'',r.spurN,r.stab==null?'':r.stab.toFixed(2),s.h.toFixed(1),s.s.toFixed(1),s.sp.toFixed(1),s.st==null?'':s.st.toFixed(1),total(r).toFixed(2)],
+        Array.from({length:15},(_,i)=>{const l=r.levels.find(x=>x.k===i+2);return l?l.db.toFixed(1):''})))})});
+  if(!rows.length){alert('還沒有完成的音可以輸出');return}
+  const q=v=>{v=String(v);return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};
+  download(fname()+'.csv','﻿'+[hd].concat(rows).map(r=>r.map(q).join(',')).join('\r\n'),'text/csv;charset=utf-8');
+};
+$('xJson').onclick=()=>{
+  const s=JSON.stringify(proj,(k,v)=>ArrayBuffer.isView(v)?Array.from(v,x=>Math.round(x*100)/100):v);
+  download(fname()+'.json',s,'application/json')};
+$('xImp').onclick=()=>$('impFile').click();
+$('impFile').onchange=async e=>{
+  const f=e.target.files[0];if(!f)return;
+  try{const p=JSON.parse(await f.text());if(!p||!Array.isArray(p.mats))throw new Error('格式不對');
+    if(!confirm('匯入會取代目前這個專案的全部資料，確定？（建議先匯出備份）'))return;
+    p.mats.forEach(m=>Object.values(m.notes||{}).forEach(n=>n.takes.forEach(t=>{t.data=Float32Array.from(t.data)})));
+    proj=Object.assign(newProj(),p);setTranspose();invalidate();renderAll();flash('✓ 已匯入')}
+  catch(err){alert('匯入失敗：'+err.message)}
+  e.target.value='';
+};
+
+// ---------- 啟動 ----------
+(function init(){
+  $('nName').innerHTML=[0,1,2,3,4,5,6,7,8,9,10,11].map(p=>'<option value="'+p+'">'+SOL[p]+'（'+FL[p]+'）</option>').join('');
+  $('nOct').innerHTML=[2,3,4,5,6,7].map(o=>'<option value="'+o+'"'+(o===4?' selected':'')+'>寫譜八度 '+o+'</option>').join('');
+  renderAll();resize();requestAnimationFrame(frame);
+  DB.get('proj').then(p=>{if(p&&Array.isArray(p.mats)){proj=Object.assign(newProj(),p);setTranspose();renderAll()}}).catch(()=>{});
+  if('serviceWorker' in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('sw.js').catch(()=>{});
+})();
+</script>
+</body>
+</html>
