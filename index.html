@@ -202,10 +202,10 @@ td.n,th.n{text-align:right}
   <button id="xPdf">📄 PDF（列印存成 PDF）</button>
   <button id="xCsv">📊 CSV（回歸分析用）</button>
   <button id="xJson">💾 備份 JSON</button>
-  <button id="xImp">📂 匯入 JSON</button>
+  <button id="xImp">📂 匯入／合併 JSON</button>
   <input type="file" id="impFile" accept=".json,application/json" hidden>
 </div>
-<div class="muted">PDF：按下後在列印視窗的「目的地」選「另存為 PDF」。JSON 含全部原始曲線，可在別台電腦匯入接著測。</div>
+<div class="muted">PDF：按下後在列印視窗的「目的地」選「另存為 PDF」。JSON 含全部原始曲線，可在別台電腦匯入接著測。匯入時若目前已有材質，可選「合併」：把檔案裡的材質加進來，方便比較不同次測試。</div>
 
 </div>
 
@@ -829,12 +829,42 @@ $('xImp').onclick=()=>$('impFile').click();
 $('impFile').onchange=async e=>{
   const f=e.target.files[0];if(!f)return;
   try{const p=JSON.parse(await f.text());if(!p||!Array.isArray(p.mats))throw new Error('格式不對');
-    if(!confirm('匯入會取代目前這個專案的全部資料，確定？（建議先匯出備份）'))return;
     p.mats.forEach(m=>Object.values(m.notes||{}).forEach(n=>n.takes.forEach(t=>{t.data=Float32Array.from(t.data)})));
-    proj=Object.assign(newProj(),p);setTranspose();invalidate();renderAll();flash('✓ 已匯入')}
-  catch(err){alert('匯入失敗：'+err.message)}
+    const hasCur=proj.mats.length>0;
+    // 目前專案已有材質 → 先問要不要「合併」（保留現有資料，把檔案裡的材質加進來）
+    if(hasCur&&confirm('要把這個檔案裡的 '+p.mats.length+' 個材質「合併加入」目前專案嗎？\n\n按「確定」＝合併（現有資料完全保留，新材質會標上來源日期）\n按「取消」＝下一步可選擇「取代」')){
+      mergeProject(p);
+    }else{
+      if(!confirm((hasCur?'改成「取代」：':'')+'匯入會取代目前這個專案的全部資料，確定？（建議先匯出備份）'))return;
+      proj=Object.assign(newProj(),p);setTranspose();invalidate();save();renderAll();flash('✓ 已匯入')}
+  }catch(err){alert('匯入失敗：'+err.message)}
   e.target.value='';
 };
+// 合併匯入：把另一份 JSON 的材質加進目前專案，不動現有資料
+function mergeProject(p){
+  const dT=(+p.transpose||0)-(+proj.transpose||0);   // 兩份專案調性不同時，換算成「同一個聲音音高」
+  const day=ts=>new Date(ts+8*3600e3).toISOString().slice(0,10);
+  const taken=new Set(proj.mats.map(m=>m.name));
+  let nMat=0,nTake=0;const firstNew=[];
+  p.mats.forEach(m=>{
+    const ts=Object.values(m.notes||{}).flatMap(n=>n.takes.map(t=>t.t||0)).filter(Boolean),src=ts.length?day(Math.min(...ts)):day(Date.now());
+    let name=m.name||'材質';
+    if(taken.has(name))name=m.name+'（'+src+'）';
+    for(let i=2;taken.has(name);i++)name=m.name+'（'+src+' #'+i+'）';
+    taken.add(name);
+    const notes={};
+    Object.entries(m.notes||{}).forEach(([k,n])=>{const key=+k+dT;notes[key]={takes:n.takes,done:!!n.done};nTake+=n.takes.length;
+      if(!proj.notes.includes(key))proj.notes.push(key)});
+    const extra='來源專案：'+(p.name||'（未命名）')+'\n來源日期：'+src;
+    const nm_={id:uid(),name,attrs:((m.attrs||'').trim()?(m.attrs||'').trim()+'\n':'')+extra,notes};
+    proj.mats.push(nm_);firstNew.push(nm_);nMat++;
+  });
+  proj.notes.sort((a,b)=>a-b);
+  if(!proj.cur.mat&&firstNew.length)proj.cur.mat=firstNew[0].id;
+  if(proj.cur.midi==null&&proj.notes.length)proj.cur.midi=proj.notes[0];
+  invalidate();save();renderAll();
+  flash('✓ 已合併 '+nMat+' 個材質（'+nTake+' 次吹奏）');
+}
 
 // ---------- 手機分頁（窄螢幕才生效，寬螢幕全部顯示） ----------
 function setPage(p){
