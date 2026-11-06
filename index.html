@@ -364,7 +364,7 @@ function compare(){
 // ---------- 繪圖 ----------
 function plot(c,W,H,o){
   const th=o.light?{grid:'#e3e7ec',tx:'#566',bg:'#fff'}:{grid:'#1c2836',tx:'#7d93a8',bg:null};
-  const P={l:44,r:10,t:o.legend?32:12,b:24},FMIN=20,fmax=o.fmax;
+  const P={l:44,r:10,t:o.legend?32:12,b:24},FMIN=30,fmax=o.fmax;
   const xOf=f=>P.l+Math.log(f/FMIN)/Math.log(fmax/FMIN)*(W-P.l-P.r);
   const fOf=x=>FMIN*Math.pow(fmax/FMIN,(x-P.l)/(W-P.l-P.r));
   const yOf=d=>P.t+(1-(d-o.bot)/(o.top-o.bot))*(H-P.t-P.b);
@@ -372,7 +372,7 @@ function plot(c,W,H,o){
   c.font='11px system-ui';c.lineWidth=1;c.strokeStyle=th.grid;c.fillStyle=th.tx;c.textAlign='right';
   for(let d=Math.ceil(o.bot/20)*20;d<=o.top;d+=20){const y=yOf(d);c.beginPath();c.moveTo(P.l,y);c.lineTo(W-P.r,y);c.stroke();c.fillText(d+'',P.l-5,y+4)}
   c.textAlign='center';
-  [20,50,100,200,500,1000,2000,5000,10000,20000].filter(f=>f<=fmax).forEach(f=>{const x=xOf(f);c.beginPath();c.moveTo(x,P.t);c.lineTo(x,H-P.b);c.stroke();c.fillText(f>=1000?f/1000+'k':f,x,H-8)});
+  [30,50,100,200,500,1000,2000,5000,10000,20000].filter(f=>f<=fmax).forEach(f=>{const x=xOf(f);c.beginPath();c.moveTo(x,P.t);c.lineTo(x,H-P.b);c.stroke();c.fillText(f>=1000?f/1000+'k':f,x,H-8)});
   const y0=H-P.b;
   o.curves.forEach(cu=>{
     const n=cu.data.length,pts=[];
