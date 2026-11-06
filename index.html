@@ -88,7 +88,7 @@ td.n,th.n{text-align:right}
 }
 </style>
 </head>
-<body data-pg="test">
+<body data-pg="set">
 <h1>音波示波器 <small>材質泛音比較</small></h1>
 
 <div class="pg" data-p="set">
@@ -195,7 +195,7 @@ td.n,th.n{text-align:right}
 </div>
 </div>
 
-<div class="pg" data-p="set">
+<div class="pg" data-p="res">
 <h2>輸出與備份</h2>
 <div class="row">
   <button id="xMd">📝 Markdown</button>
@@ -209,7 +209,7 @@ td.n,th.n{text-align:right}
 
 </div>
 
-<nav id="bnav"><button data-p="test" class="on">🎤 測試</button><button data-p="res">📊 結果</button><button data-p="set">⚙ 設定與輸出</button></nav>
+<nav id="bnav"><button data-p="set" class="on">⚙ 設定</button><button data-p="test">🎤 測試</button><button data-p="res">📊 結果與輸出</button></nav>
 <div id="report"></div>
 
 <script>
@@ -501,40 +501,67 @@ $('bFreeze').onclick=e=>{frozen=!frozen;e.target.classList.toggle('on',frozen);e
 $('bPeak').onclick=e=>{peakHold=!peakHold;peakData=null;e.target.classList.toggle('on',peakHold)};
 
 // ---------- 自動記錄（以「目標音」為準） ----------
-let auto=true,armed=true,quietSince=0,aStart=0,aRef=0,aAcc=null,aN=0,aLost=0,aProg=0,msg='',msgUntil=0,msgBad=false,heard='',recUntil=0,recN=0,recAcc=null;
+let auto=true,armed=true,quietSince=0,aStart=0,aRef=0,aAcc=null,aN=0,aLost=0,aProg=0,msg='',msgUntil=0,msgBad=false,heard='',aFrames=[],aManual=false,aLastOk=0;
+// 一次吹奏約 4 秒：自動偵測開始／結束，丟掉起音與收音，挑最穩的 2 秒平均成這一次的波形
+const BLOW_MIN=2500,BLOW_MAX=12000,BLOW_NOM=4000,TRIM_HEAD=500,TRIM_TAIL=300,BLOW_WIN=2000;
 function flash(t,bad){msg=t;msgBad=!!bad;msgUntil=performance.now()+1800}
-function resetAuto(){armed=true;aStart=0;aProg=0;quietSince=0;aLost=0}
+function resetAuto(){armed=true;aStart=0;aProg=0;quietSince=0;aLost=0;aFrames=[];aManual=false}
 $('bAuto').onclick=e=>{auto=!auto;resetAuto();e.target.classList.toggle('on',auto);e.target.textContent=auto?'🤖 自動記錄：開':'🤖 自動記錄：關'};
-$('bRec').onclick=()=>{if(!an||!live){flash('先開啟聲音來源',true);return}if(!canRecord())return;recUntil=performance.now()+600;recN=0;recAcc=new Float64Array(live.length)};
+$('bRec').onclick=()=>{if(!an||!live){flash('先開啟聲音來源',true);return}if(!canRecord()||aStart!==0)return;aStart=performance.now();aManual=true;aLost=0;aFrames=[]};
 function canRecord(){if(!curMat()){flash('先新增材質',true);return false}if(proj.cur.midi==null){flash('先加入並選一個測試音',true);return false}return true}
-function addTake(acc,n,sr,f0){
+function addTake(acc,n,sr,f0,meta){
   const m=curMat(),mi=proj.cur.midi;if(!m||mi==null)return;
   const d=new Float32Array(acc.length);for(let i=0;i<d.length;i++)d[i]=10*Math.log10(Math.max(acc[i]/n,1e-14));
-  const nt=ensureNote(m,mi);nt.takes.push({sr,data:d,f0,t:Date.now()});
-  invalidate();renderAll();flash('✓ 第 '+nt.takes.length+' 次已記錄');
+  const nt=ensureNote(m,mi);nt.takes.push(Object.assign({sr,data:d,f0,t:Date.now()},meta||{}));
+  invalidate();renderAll();
+  flash('✓ 第 '+nt.takes.length+' 次已記錄'+(meta&&meta.dur?'（吹 '+meta.dur.toFixed(1)+' 秒，取最穩 '+meta.win.toFixed(1)+' 秒）':''));
   try{navigator.vibrate&&navigator.vibrate(60)}catch(e){}
+}
+// 一次吹奏結束：從收到的每一格頻譜裡，挑「音量與音高最穩」的一段平均成一筆記錄
+function endBlow(sr,lastOk){
+  const fr=aFrames,man=aManual;aFrames=[];aStart=0;aProg=0;aLost=0;aManual=false;armed=false;quietSince=performance.now();
+  if(!fr.length)return;
+  const t0=fr[0].t,t1=man?fr[fr.length-1].t:Math.max(lastOk,t0),D=t1-t0;
+  if(D<BLOW_MIN){flash('太短（'+(D/1000).toFixed(1)+' 秒），請吹滿 3 秒以上，這次沒有記錄',true);return}
+  let use=fr.filter(x=>x.t>=t0+TRIM_HEAD&&x.t<=t1-TRIM_TAIL);
+  if(use.length<6)use=fr.filter(x=>x.t<=t1);
+  if(use.length<3){flash('這次收到的聲音太少，沒有記錄',true);return}
+  const last=use[use.length-1].t,wl=Math.min(BLOW_WIN,last-use[0].t);
+  let best=null;
+  for(let i=0;i<use.length;i++){
+    if(use[i].t+wl>last)break;
+    let e=i;while(e+1<use.length&&use[e+1].t<=use[i].t+wl)e++;
+    const seg=use.slice(i,e+1);if(seg.length<3)continue;
+    const sc=sdev(seg.map(x=>x.L))+120*sdev(seg.map(x=>Math.log2(x.f)));   // 音量起伏(dB) + 音高起伏(約 10 音分 ≈ 1 dB)
+    if(!best||sc<best.sc)best={sc,seg};
+  }
+  const seg=best?best.seg:use,acc=new Float64Array(seg[0].s.length);
+  seg.forEach(x=>{for(let i=0;i<acc.length;i++)acc[i]+=Math.pow(10,x.s[i]/10)});
+  addTake(acc,seg.length,sr,medianOf(seg.map(x=>x.f)),{dur:D/1000,win:(seg[seg.length-1].t-seg[0].t)/1000});
 }
 function autoStep(now,sr){
   const m=curMat(),mi=proj.cur.midi;heard='';
-  if(!m||mi==null){aProg=0;aStart=0;return}
+  if(!m||mi==null){aProg=0;aStart=0;aFrames=[];return}
   const f0=mf(mi+proj.transpose);
-  if(f0<30||f0>sr/2*0.5){aProg=0;return}
+  if(f0<30||f0>sr/2*0.5){aProg=0;aStart=0;aFrames=[];return}
   const pk=windowPeak(live,sr,f0,0.06),dm=domPeak(live,sr,fmaxv()),thr=+$('trig').value;
   const ok=pk.db>thr&&pk.db>=dm.db-35;
   if(!ok&&dm.db>thr)heard='聽到 '+nm(Math.round(fm(dm.f)))+'（'+dm.f.toFixed(0)+' Hz），不是目標音 '+nm(mi+proj.transpose);
-  if(!auto){aProg=0;aStart=0;return}
+  const push=()=>aFrames.push({t:now,L:pk.db,f:pk.f>0?pk.f:f0,s:live.slice()});
+  if(aStart!==0){                                   // 正在收一次吹奏
+    aProg=Math.min(1,(now-aStart)/BLOW_NOM);
+    if(aManual){push();if(now-aStart>=BLOW_NOM)endBlow(sr,now);return}
+    if(ok){aLost=0;aLastOk=now;push();if(now-aStart>=BLOW_MAX)endBlow(sr,aLastOk)}
+    else{if(!aLost)aLost=now;if(now-aLost>300)endBlow(sr,aLastOk)}   // 聲音停超過 0.3 秒＝這一次吹完
+    return;
+  }
+  aProg=0;
+  if(!auto)return;
   if(!armed){
     if(!ok){if(!quietSince)quietSince=now;if(now-quietSince>300)armed=true}else quietSince=0;
-    if(!armed){aProg=0;return}
+    if(!armed)return;
   }
-  if(ok&&(aStart===0||Math.abs(Math.log2(pk.f/aRef))<0.02)){
-    aLost=0;
-    if(aStart===0){aStart=now;aRef=pk.f;aAcc=new Float64Array(live.length);aN=0}
-    if(now-aStart>300){for(let i=0;i<live.length;i++)aAcc[i]+=Math.pow(10,live[i]/10);aN++}
-    aProg=Math.min(1,(now-aStart)/1000);
-    if(now-aStart>=1000&&aN>0){addTake(aAcc,aN,sr,aRef);armed=false;aStart=0;aProg=0;quietSince=0}
-  }else if(aStart!==0){if(!aLost)aLost=now;if(now-aLost>150){aStart=0;aLost=0;aProg=0}}
-  else aProg=0;
+  if(ok){aStart=now;aLastOk=now;aLost=0;aFrames=[];push()}   // 目標音響起，開始收
 }
 
 // ---------- 操作：材質 / 測試音 / 完成 ----------
@@ -614,9 +641,10 @@ function renderNoteCard(){
   const m=curMat(),mi=proj.cur.midi,el=$('noteCard');
   if(!m||mi==null){el.innerHTML='<span class="muted">選好材質和測試音後，這裡會顯示每次吹奏與這個音的分析</span>';return}
   const n=m.notes[mi],r=n&&n.takes.length?resultOf(m,mi):null;
-  if(!r){el.innerHTML='<span class="muted">這個音還沒有記錄。吹穩 1 秒就會自動記一次。</span>';return}
+  if(!r){el.innerHTML='<span class="muted">這個音還沒有記錄。按「麥克風」後吹一次約 4 秒，聲音停下來就會自動記一次。</span>';return}
   const s=subScores(r),tot=total(r);
-  let h='<div class="takes">'+n.takes.map((t,i)=>'<span class="take">第 '+(i+1)+' 次 · '+t.f0.toFixed(1)+' Hz <b data-i="'+i+'" title="刪除這一次">✕</b></span>').join('')+'</div>';
+  let h='<div class="muted">已吹 '+n.takes.length+' 次。'+(n.done?'這個音已完成，下面是 '+n.takes.length+' 次的中位數（定案版本）。':'按「完成這個音」後，會取這 '+n.takes.length+' 次的逐頻率中位數當定案版本。')+'</div>'+
+    '<div class="takes">'+n.takes.map((t,i)=>'<span class="take">第 '+(i+1)+' 次 · '+t.f0.toFixed(1)+' Hz'+(t.dur?' · '+t.dur.toFixed(1)+' 秒':'')+' <b data-i="'+i+'" title="刪除這一次">✕</b></span>').join('')+'</div>';
   h+='<table><tr><th>項目</th><th class="n">數值</th><th class="n">分項分數</th></tr>'+
    '<tr><td>基頻（中位數）</td><td class="n">'+r.f0.toFixed(1)+' Hz</td><td></td></tr>'+
    '<tr><td>泛音數（強度 > -40 dBc）</td><td class="n">'+r.H+' 個</td><td class="n">'+fmt(s.h,0)+'</td></tr>'+
@@ -671,8 +699,6 @@ function frame(){
   const sr=ac?ac.sampleRate:48000,now=performance.now(),m=curMat(),mi=proj.cur.midi,tr=proj.transpose;
   if(an&&mode&&!frozen){
     const arr=new Float32Array(an.frequencyBinCount);an.getFloatFrequencyData(arr);if(arr[0]>-Infinity)live=arr;
-    if(recUntil>0&&live){for(let i=0;i<live.length;i++)recAcc[i]+=Math.pow(10,live[i]/10);recN++;
-      if(now>=recUntil){recUntil=0;const w=mi!=null?windowPeak(live,sr,mf(mi+tr),0.06):{f:0};addTake(recAcc,recN,sr,w.f)}}
     if(live)autoStep(now,sr);
     if(peakHold&&live){if(!peakData||peakData.length!==live.length)peakData=Float32Array.from(live);else for(let i=0;i<live.length;i++)if(live[i]>peakData[i])peakData[i]=live[i]}
   }
@@ -702,8 +728,7 @@ function frame(){
   lastMap=plot(ctx,W,H,o);
   const P=lastMap.P;
   ctx.textAlign='right';ctx.font='12px system-ui';
-  if(recUntil>0){ctx.fillStyle='#fbbf24';ctx.fillText('記錄中…',W-14,P.t+14)}
-  else if(view==='live'&&aProg>0){ctx.fillStyle='#fbbf24';ctx.fillText('聽到穩定聲音… '+aProg.toFixed(1)+' / 1.0 s',W-14,P.t+14);
+  if(aStart!==0&&view==='live'){ctx.fillStyle='#fbbf24';ctx.fillText((aManual?'手動收音… ':'收音中… ')+((now-aStart)/1000).toFixed(1)+' 秒（吹滿 4 秒）',W-14,P.t+14);
     ctx.fillStyle='#fbbf2455';ctx.fillRect(W-154,P.t+20,140,4);ctx.fillStyle='#fbbf24';ctx.fillRect(W-154,P.t+20,140*aProg,4)}
   else if(view==='live'&&heard){ctx.fillStyle='#ff9f6c';ctx.fillText(heard,W-14,P.t+14)}
   if(now<msgUntil){ctx.textAlign='center';ctx.font='bold '+(W<500?15:22)+'px system-ui';ctx.fillStyle=msgBad?'#ff5d6c':'#34d399';ctx.fillText(msg,(W+P.l)/2,P.t+44)}
@@ -823,8 +848,8 @@ function setPage(p){
   $('nName').innerHTML=[0,1,2,3,4,5,6,7,8,9,10,11].map(p=>'<option value="'+p+'">'+SOL[p]+'（'+FL[p]+'）</option>').join('');
   $('nOct').innerHTML=[2,3,4,5,6,7].map(o=>'<option value="'+o+'"'+(o===4?' selected':'')+'>寫譜八度 '+o+'</option>').join('');
   document.querySelectorAll('#bnav button').forEach(b=>b.onclick=()=>setPage(b.dataset.p));
-  let pg0='test';try{pg0=localStorage.getItem('osc-pg')||'test'}catch(e){}
-  setPage(['test','res','set'].includes(pg0)?pg0:'test');
+  let pg0='set';try{pg0=localStorage.getItem('osc-pg')||'set'}catch(e){}
+  setPage(['test','res','set'].includes(pg0)?pg0:'set');
   renderAll();resize();requestAnimationFrame(frame);
   DB.get('proj').then(p=>{if(p&&Array.isArray(p.mats)){proj=Object.assign(newProj(),p);setTranspose();renderAll()}}).catch(()=>{});
   if('serviceWorker' in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('sw.js').catch(()=>{});
