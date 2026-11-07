@@ -133,7 +133,7 @@ td.n,th.n{text-align:right}
 </div>
 
 <div class="row">
-  <button id="bMic">🎤 麥克風</button>
+  <button id="bMic">🎤 麥克風：關</button>
   <button id="bFile">📁 音檔</button>
   <input type="file" id="file" accept="audio/*" hidden>
   <button id="bFreeze">⏸ 凍結</button>
@@ -387,7 +387,7 @@ function plot(c,W,H,o){
     c.beginPath();pts.forEach(([x,y],i)=>i?c.lineTo(x,y):c.moveTo(x,y));
     c.lineWidth=cu.lw||1.5;c.strokeStyle=cu.color;c.globalAlpha=cu.alpha==null?1:cu.alpha;c.lineJoin='round';c.stroke();
     if(cu.fill>0){c.lineTo(pts[pts.length-1][0],y0);c.lineTo(pts[0][0],y0);c.closePath();
-      const g=c.createLinearGradient(0,P.t,0,y0);g.addColorStop(0,cu.color+Math.round(cu.fill*255).toString(16).padStart(2,'0'));g.addColorStop(1,cu.color+'00');c.fillStyle=g;c.fill()}
+      const hx=a=>Math.round(a*255).toString(16).padStart(2,'0'),g=c.createLinearGradient(0,P.t,0,y0);g.addColorStop(0,cu.color+hx(cu.fill));g.addColorStop(1,cu.color+hx(cu.fill*.3));c.fillStyle=g;c.fill()}
     c.globalAlpha=1;
   });
   (o.vlines||[]).forEach(v=>{if(v.f>fmax)return;const x=xOf(v.f);c.save();c.setLineDash([5,4]);c.strokeStyle=v.color||'#facc15';c.lineWidth=1;c.beginPath();c.moveTo(x,P.t);c.lineTo(x,y0);c.stroke();c.restore();
@@ -488,10 +488,14 @@ async function ensureCtx(){
 function applyAn(){if(!an)return;an.fftSize=+$('fft').value;an.smoothingTimeConstant=+$('sm').value/100;an.minDecibels=-140;an.maxDecibels=0;live=null;peakData=null}
 $('fft').onchange=applyAn;$('sm').oninput=applyAn;
 function detach(){try{srcNode&&srcNode.disconnect()}catch(e){}try{an&&an.disconnect()}catch(e){}srcNode=null;if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}}
-function setMode(m){mode=m;resetAuto();$('bMic').classList.toggle('on',m==='mic');$('bFile').classList.toggle('on',m==='file');$('aud').style.display=m==='file'?'block':'none';updHint();resize()}
-$('bMic').onclick=async()=>{try{await ensureCtx();$('aud').pause();detach();
+function setMode(m){mode=m;resetAuto();$('bMic').classList.toggle('on',m==='mic');$('bMic').textContent=m==='mic'?'🎤 麥克風：開':'🎤 麥克風：關';$('bFile').classList.toggle('on',m==='file');$('aud').style.display=m==='file'?'block':'none';updHint();resize()}
+// 麥克風開關：開著時再按一次＝關閉（真的釋放麥克風，並清掉畫面上的即時曲線）
+function stopSource(){detach();live=null;peakData=null;liveMarks=[];setMode(null)}
+let micBusy=false;
+$('bMic').onclick=async()=>{if(micBusy)return;if(mode==='mic'){stopSource();return}
+  micBusy=true;try{await ensureCtx();$('aud').pause();detach();
   stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
-  srcNode=ac.createMediaStreamSource(stream);srcNode.connect(an);setMode('mic')}catch(e){alert('無法開啟麥克風：'+e.message)}};
+  srcNode=ac.createMediaStreamSource(stream);srcNode.connect(an);setMode('mic')}catch(e){stopSource();alert('無法開啟麥克風：'+e.message)}finally{micBusy=false}};
 $('bFile').onclick=()=>$('file').click();
 $('file').onchange=async e=>{const f=e.target.files[0];if(!f)return;await ensureCtx();detach();
   const a=$('aud');a.loop=true;a.src=URL.createObjectURL(f);if(!mediaSrc)mediaSrc=ac.createMediaElementSource(a);
@@ -707,7 +711,7 @@ function frame(){
   let o={fmax:fmaxv(),curves:[],top:-10,bot:dbmin(),vlines:[],marks:[]},unit='dB';
   if(view==='live'){
     if(peakHold&&peakData)o.curves.push({data:peakData,sr,color:'#ffffff',lw:1,fill:0});
-    if(live)o.curves.push({data:live,sr,color:'#22d3ee',lw:2,fill:.35});
+    if(live)o.curves.push({data:live,sr,color:'#22d3ee',lw:2,fill:.6});
     if(f0t){o.vlines.push({f:f0t,label:'目標 '+nm(mi+tr)});
       if(live&&frameNo%5===0){const w=windowPeak(live,sr,f0t,0.06);liveMarks=w.db>+$('trig').value-10?peaksOf(live,sr,f0t,w.db,fmaxv()).map(p=>({f:p.f,db:p.db,color:p.hm?'#22d3ee':'#ff5d6c',label:p.hm?(p.k>1?p.k+'×':'f0'):'雜'})):[]}
       o.marks=liveMarks}
@@ -716,13 +720,13 @@ function frame(){
     if(view==='single'&&m&&mi!=null){
       const r=resultOf(m,mi);const col=MCOL[proj.mats.indexOf(m)%8];
       if(r){r.takeCurves.forEach(c=>o.curves.push({data:c,sr:r.sr,color:col,lw:1,alpha:.3,fill:0}));
-        o.curves.push({data:r.curve,sr:r.sr,color:col,lw:2.5,fill:.3});
+        o.curves.push({data:r.curve,sr:r.sr,color:col,lw:2.5,fill:.55});
         o.marks=r.peaks.map(p=>({f:p.f,db:p.db,color:p.hm?'#22d3ee':'#ff5d6c',label:p.hm?(p.k>1?p.k+'×':'f0'):'雜'}));
         o.vlines.push({f:r.f0,label:'f0 '+r.f0.toFixed(0)+' Hz',color:'#facc1599'})}
     }else if(view==='cmp'&&mi!=null){
       o.legend=[];
       proj.mats.forEach((mm,i)=>{const r=resultOf(mm,mi);if(!r)return;const col=MCOL[i%8],dn=mm.notes[mi].done;
-        o.curves.push({data:r.curve,sr:r.sr,color:col,lw:2,fill:.12});o.legend.push({name:mm.name+(dn?'':'（未完成）')+' ×'+r.n,color:col})});
+        o.curves.push({data:r.curve,sr:r.sr,color:col,lw:2,fill:0});o.legend.push({name:mm.name+(dn?'':'（未完成）')+' ×'+r.n,color:col})});
       if(f0t)o.vlines.push({f:f0t,label:solf(mi)+' '+nm(mi+tr)});
     }
   }
@@ -778,7 +782,7 @@ function reportParts(){
       rows:rows.map(({r,res})=>[r.m.name,res.n,res.f0.toFixed(1),res.H,fmt(res.S,1),res.spurF==null?'無':fmt(res.spurDb,0),fmt(res.stab,1),fmt(total(res),1)]),
       lhd:['材質'].concat(Array.from({length:11},(_,i)=>(i+2)+'×')),
       lrows:rows.map(({r,res})=>[r.m.name].concat(Array.from({length:11},(_,i)=>{const l=res.levels.find(x=>x.k===i+2);return l?(l.present?'':'(')+l.db.toFixed(0)+(l.present?'':')'):'—'}))),
-      curves:rows.map(({r,res})=>({data:res.curve,sr:res.sr,color:MCOL[proj.mats.indexOf(r.m)%8],lw:2,fill:.1,name:r.m.name}))};
+      curves:rows.map(({r,res})=>({data:res.curve,sr:res.sr,color:MCOL[proj.mats.indexOf(r.m)%8],lw:2,fill:0,name:r.m.name}))};
   });
   out.method=['每個音：同一個音吹多次，每次先把基頻對齊成 0 dB（排除吹得大小聲），再逐頻率取中位數，得到代表曲線。','泛音數：2–16 次泛音中，強度在基頻下 40 dB 以內、且比周圍底噪高 10 dB 以上的個數（滿分 '+HMAX+' 個）。','泛音強度：泛音總能量相對基頻的 dB（-30 dB 得 0 分，+10 dB 得 100 分）。','雜散：非基頻整數倍（±2.5%）的最強峰值（-20 dBc 得 0 分，-60 dBc 或沒有得 100 分）。dBc 數字越小越好；表格顯示「無」＝所有音都沒偵測到雜散。','穩定度：2–8 次泛音在各次吹奏之間的標準差平均（6 dB 得 0 分，0 dB 得 100 分；只吹 1 次則不計）。','權重：泛音數 '+w.h+'、泛音強度 '+w.s+'、雜散 '+w.sp+'、穩定度 '+w.st+'。材質綜合分 ＝ 比較用各音單音總分的平均。','括號內的泛音數值＝沒偵測到明顯峰值，只是該頻率的底噪位準。'];
   return out;
