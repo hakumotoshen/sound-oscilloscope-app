@@ -208,9 +208,10 @@ td.n,th.n{text-align:right}
   <button id="xCsv">📊 CSV（回歸分析用）</button>
   <button id="xJson">💾 備份 JSON</button>
   <button id="xImp">📂 匯入／合併 JSON</button>
-  <button id="xNew" class="danger">🆕 新專案</button>
+  <button id="xNew" class="danger" title="清空目前專案，開始下一次測試（請先備份 JSON）">🆕 新專案</button>
   <input type="file" id="impFile" accept=".json,application/json" hidden>
 </div>
+<div class="muted" style="margin-bottom:6px"><b>🆕 新專案：</b>測完要開始下一次測試，或換下一位同學時使用。它會清空目前專案的材質、測試音和吹奏紀錄，<b>無法復原，請先按「備份 JSON」存檔</b>。只想擦掉畫面上的曲線，請用上方「凍結」旁的 Reset，紀錄不會被刪。</div>
 <div class="muted">PDF：按下後在列印視窗的「目的地」選「另存為 PDF」。JSON 含全部原始曲線，可在別台電腦匯入接著測。匯入時若目前已有材質，可選「合併」：把檔案裡的材質加進來，方便比較不同次測試。</div>
 
 </div>
