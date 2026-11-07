@@ -157,6 +157,7 @@ td.n,th.n{text-align:right}
 </div>
 <div id="corrBar" class="row" style="margin:6px 0;display:none">
   <button id="bCorr">底噪校正：開</button>
+  <button id="bStack" style="display:none">排列：疊圖</button>
   <span class="muted">參考 X-ray 能譜的背景扣除：先算出底噪曲線，整條波形（含峰值）一起扣掉，縱軸變成「高於底噪幾 dB」。只改變圖的顯示，分數和 CSV 都用原始資料。</span>
 </div>
 <div id="tuneBar" class="row" style="margin:6px 0;display:none">
@@ -224,6 +225,7 @@ td.n,th.n{text-align:right}
   <input type="file" id="impFile" accept=".json,application/json" hidden>
 </div>
 <div class="muted" style="margin-bottom:6px"><b>🆕 新專案：</b>測完要開始下一次測試，或換下一位同學時使用。它會清空目前專案的材質、測試音和吹奏紀錄，<b>無法復原，請先按「備份 JSON」存檔</b>。只想擦掉畫面上的曲線，請用上方「凍結」旁的 Reset，紀錄不會被刪。</div>
+<div class="muted" style="margin-bottom:6px">📱 手機上按輸出，會跳出分享選單：選「儲存到檔案」就會存進「檔案」App，也可以直接傳 LINE 或寄 Email。</div>
 <div class="muted">PDF：按下後在列印視窗的「目的地」選「另存為 PDF」。JSON 含全部原始曲線，可在別台電腦匯入接著測。匯入時若目前已有材質，可選「合併」：把檔案裡的材質加進來，方便比較不同次測試。</div>
 
 </div>
@@ -397,6 +399,17 @@ function smoothC(c,r){
 const shownCurve=r=>{const q=corrOn?'sN':'sR';return r[q]||(r[q]=smoothC(corrOn?netCurve(r.curve,r.sr,r.f0):r.curve,r))};
 const shownTakes=r=>{const q=corrOn?'tN':'tR';return r[q]||(r[q]=r.takeCurves.map(c=>smoothC(corrOn?netCurve(c,r.sr,r.f0):c,r)))};
 const netTop=cs=>{let m=0;cs.forEach(c=>{for(let i=0;i<c.length;i++)if(c[i]>m)m=c[i]});return Math.max(40,Math.ceil((m+4)/20)*20)};
+// ---------- 上下錯位排列（像 X-ray 繞射圖的堆疊圖）：每條曲線往上墊高一段，只改顯示 ----------
+let stackOn=false;try{stackOn=localStorage.getItem('osc-stack')==='1'}catch(e){}
+function stackO(o){
+  const cs=o.curves,off=Math.max(10,Math.ceil((o.top-o.bot)*.6/10)*10);
+  o.curves=cs.map((c,i)=>{const d=new Float32Array(c.data.length);for(let j=0;j<d.length;j++)d[j]=c.data[j]+off*i;return Object.assign({},c,{data:d,off:off*i})});
+  o.top+=off*(cs.length-1);o.stack={off};
+}
+function stackLabels(g,mp,o,W){   // 名稱標在每條曲線的右邊
+  g.font='bold 12px system-ui';g.textAlign='right';
+  o.curves.forEach((c,i)=>{const nm_=(o.legend&&o.legend[i]?o.legend[i].name:c.name)||'';g.fillStyle=c.color;g.fillText(nm_,W-mp.P.r-6,mp.yOf(o.bot+o.stack.off*i)-6)});
+}
 function subScores(r){return{h:clamp(r.H/HMAX*100),s:clamp((r.S+30)/40*100),sp:clamp((-r.spurDb-20)/40*100),st:r.stab==null?null:clamp((6-r.stab)/6*100)}}
 function total(r){
   const s=subScores(r),w=proj.weights;let a=0,b=0;
@@ -430,7 +443,7 @@ function plot(c,W,H,o){
   const yOf=d=>P.t+(1-(d-o.bot)/(o.top-o.bot))*(H-P.t-P.b);
   if(th.bg){c.fillStyle=th.bg;c.fillRect(0,0,W,H)}
   c.font='11px system-ui';c.lineWidth=1;c.strokeStyle=th.grid;c.fillStyle=th.tx;c.textAlign='right';
-  for(let d=Math.ceil(o.bot/20)*20;d<=o.top;d+=20){const y=yOf(d);c.beginPath();c.moveTo(P.l,y);c.lineTo(W-P.r,y);c.stroke();c.fillText(d+'',P.l-5,y+4)}
+  for(let d=Math.ceil(o.bot/20)*20;d<=o.top;d+=20){const y=yOf(d);c.beginPath();c.moveTo(P.l,y);c.lineTo(W-P.r,y);c.stroke();if(!o.stack)c.fillText(d+'',P.l-5,y+4)}   // 上下錯位時刻度沒有意義，不標數字
   c.textAlign='center';
   [30,50,100,200,500,1000,2000,5000,10000,20000].filter(f=>f<=fmax).forEach(f=>{const x=xOf(f);c.beginPath();c.moveTo(x,P.t);c.lineTo(x,H-P.b);c.stroke();c.fillText(f>=1000?f/1000+'k':f,x,H-8)});
   const y0=H-P.b;
@@ -587,6 +600,8 @@ $('file').onchange=async e=>{const f=e.target.files[0];if(!f)return;await ensure
   srcNode=mediaSrc;srcNode.connect(an);an.connect(ac.destination);setMode('file');a.play().catch(()=>{});e.target.value=''};
 $('aud').addEventListener('play',()=>ac&&ac.resume());
 function updCorr(){$('bCorr').classList.toggle('on',corrOn);$('bCorr').textContent='底噪校正：'+(corrOn?'開':'關')}
+function updStack(){$('bStack').classList.toggle('on',stackOn);$('bStack').textContent='排列：'+(stackOn?'上下錯位':'疊圖')}
+updStack();$('bStack').onclick=()=>{stackOn=!stackOn;try{localStorage.setItem('osc-stack',stackOn?'1':'0')}catch(e){}updStack()};
 updCorr();$('bCorr').onclick=()=>{corrOn=!corrOn;try{localStorage.setItem('osc-bg',corrOn?'1':'0')}catch(e){}updCorr()};
 $('bFreeze').onclick=e=>{frozen=!frozen;e.target.classList.toggle('on',frozen);e.target.textContent=frozen?'▶ 繼續':'⏸ 凍結'};
 $('bPeak').onclick=e=>{peakHold=!peakHold;peakData=null;e.target.classList.toggle('on',peakHold)};
@@ -795,6 +810,7 @@ function updNav(){
   const el=$('noteNav'),mi=proj.cur.midi,ns=proj.notes;
   $('tuneBar').style.display=view==='tune'?'flex':'none';
   $('corrBar').style.display=(view==='single'||view==='cmp')?'flex':'none';
+  $('bStack').style.display=view==='cmp'?'':'none';
   el.style.display=((view==='single'||view==='cmp')&&ns.length>1)?'flex':'none';
   if(mi==null||!ns.length){$('nvTxt').textContent='';return}
   const i=ns.indexOf(mi);
@@ -893,8 +909,9 @@ function frame(){
       if(f0t)o.vlines.push({f:f0t,label:solf(mi)+' '+nm(mi+tr)});
     }
     if(corrOn){o.bot=0;o.top=netTop(o.curves.map(c=>c.data));unit='dB（高於底噪）'}
+    if(view==='cmp'&&stackOn&&o.curves.length>1)stackO(o);
   }
-  lastMap=plot(ctx,W,H,o);
+  lastMap=plot(ctx,W,H,o);if(o.stack)stackLabels(ctx,lastMap,o,W);
   const P=lastMap.P;
   ctx.textAlign='right';ctx.font='12px system-ui';
   if(aStart!==0&&view==='live'){ctx.fillStyle='#fbbf24';ctx.fillText((aManual?'手動收音… ':'收音中… ')+((now-aStart)/1000).toFixed(1)+' 秒（吹滿 4 秒）',W-14,P.t+14);
@@ -906,7 +923,7 @@ function frame(){
     const f=lastMap.fOf(cursorX);ctx.strokeStyle='#ffffff55';ctx.beginPath();ctx.moveTo(cursorX,P.t);ctx.lineTo(cursorX,H-P.b);ctx.stroke();
     const mm=fm(f),wm=Math.round(mm)-tr;
     let t=(f<1000?f.toFixed(0)+' Hz':(f/1000).toFixed(2)+' kHz')+' · 聲音 '+nm(Math.round(mm))+' · 寫譜 '+solf(wm)+'（'+nm(wm)+'）';
-    o.curves.filter(c=>(c.alpha==null)).forEach((c,i)=>{const kk=c.sr/2/c.data.length,a=Math.max(0,Math.floor(lastMap.fOf(cursorX-3)/kk)),b=Math.max(a,Math.ceil(lastMap.fOf(cursorX+3)/kk));let v=-1e9;for(let j=a;j<=b&&j<c.data.length;j++)v=Math.max(v,c.data[j]);t+=' · '+v.toFixed(0)+' '+unit});
+    o.curves.filter(c=>(c.alpha==null)).forEach((c,i)=>{const kk=c.sr/2/c.data.length,a=Math.max(0,Math.floor(lastMap.fOf(cursorX-3)/kk)),b=Math.max(a,Math.ceil(lastMap.fOf(cursorX+3)/kk));let v=-1e9;for(let j=a;j<=b&&j<c.data.length;j++)v=Math.max(v,c.data[j]-(c.off||0));t+=' · '+v.toFixed(0)+' '+unit});
     ro.style.display='block';ro.textContent=t;
   }else ro.style.display='none';
 }
@@ -967,12 +984,20 @@ function buildReportHtml(){
    '<div class="muted">頻段表現（全部音平均，0–100，不分好壞）</div>'+htmlTable(R.bands.hd,R.bands.rows)+'<h2>總排名</h2>'+htmlTable(R.rank.hd,R.rank.rows)+'<ul>'+R.concl.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul><h2>各音比較</h2>';
   R.notes.forEach(n=>{
     const cv2=document.createElement('canvas');cv2.width=1800;cv2.height=640;const c2=cv2.getContext('2d');c2.scale(2,2);
-    plot(c2,900,320,{light:true,fmax:20000,top:corrOn?netTop(n.curves.map(c=>c.data)):5,bot:corrOn?0:-80,curves:n.curves,legend:n.curves.map(c=>({name:c.name,color:c.color}))});
+    const o2={light:true,fmax:20000,top:corrOn?netTop(n.curves.map(c=>c.data)):5,bot:corrOn?0:-80,curves:n.curves,legend:n.curves.map(c=>({name:c.name,color:c.color}))};
+    if(stackOn&&o2.curves.length>1)stackO(o2);const mp=plot(c2,900,320,o2);if(o2.stack)stackLabels(c2,mp,o2,900);
     h+='<h3>'+esc(n.title)+'</h3><div class="muted">縱軸：'+(corrOn?'高於底噪（dB），已做底噪校正':'相對基頻（dBc）')+'</div><img src="'+cv2.toDataURL('image/png')+'">'+htmlTable(n.hd,n.rows)+'<div class="muted">泛音相對基頻（dBc）</div>'+htmlTable(n.lhd,n.lrows);
   });
   return h+'<h2>評分方式</h2><ul>'+R.method.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul>';
 }
-function download(name,text,type){const b=new Blob([text],{type});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),2000)}
+function saveFile(name,b){const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),2000)}
+// 手機（觸控螢幕）且支援分享檔案：跳出分享選單，可存到「檔案」、傳 LINE、寄 Email；電腦維持直接下載
+function download(name,text,type){const b=new Blob([text],{type});
+  let f=null;try{f=new File([b],name,{type:type.split(';')[0]})}catch(e){}
+  const mobile=matchMedia('(pointer:coarse)').matches;
+  if(mobile&&f&&navigator.canShare&&navigator.canShare({files:[f]})){
+    navigator.share({files:[f],title:name}).catch(e=>{if(e&&e.name!=='AbortError')saveFile(name,b)});return}   // 使用者按取消就不動作；其他錯誤改用一般下載
+  saveFile(name,b)}
 const fname=()=>(proj.name||'報告').replace(/[\\/:*?"<>|]/g,'_')+'_'+stamp();
 $('xMd').onclick=()=>{const s=buildMarkdown();if(!s){alert('還沒有吹奏紀錄可以輸出');return}download(fname()+'.md',s,'text/markdown;charset=utf-8')};
 $('xPdf').onclick=()=>{const h=buildReportHtml();if(!h){alert('還沒有吹奏紀錄可以輸出');return}
