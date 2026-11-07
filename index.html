@@ -22,6 +22,7 @@ button.on{background:var(--ac);color:#04222a;border-color:var(--ac);font-weight:
 button.done{background:#0f3d2e;border-color:var(--ok);color:#baf7df;font-weight:700;font-size:16px;padding:12px 18px}
 button.done:hover{background:#14563f}
 button.rec{border-color:#f59e0b;color:#fbbf24}
+button.danger{border-color:#ff5d6c;color:#ff5d6c}
 label.f{display:flex;align-items:center;gap:6px;color:var(--mu);font-size:13px}
 input[type=range]{accent-color:var(--ac);width:110px}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin:10px 0}
@@ -46,6 +47,7 @@ canvas{display:block;width:100%;height:min(52vh,420px)}
 #hint{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--mu);pointer-events:none;text-align:center;padding:20px}
 audio{width:100%;margin:6px 0;display:none}
 table{width:100%;border-collapse:collapse;font-size:13px}
+#cmp{overflow-x:auto}
 td,th{padding:4px 7px;text-align:left;border-bottom:1px solid var(--line)}
 th{color:var(--mu);font-weight:500}
 td.n,th.n{text-align:right}
@@ -136,6 +138,7 @@ td.n,th.n{text-align:right}
   <button id="bMic">🎤 麥克風：關</button>
   <button id="bFile">📁 音檔</button>
   <input type="file" id="file" accept="audio/*" hidden>
+  <button id="xReset" class="danger">🔄 Reset</button>
   <button id="bFreeze">⏸ 凍結</button>
   <button id="bPeak">峰值保持</button>
   <button id="bAuto" class="on">🤖 自動記錄：開</button>
@@ -189,7 +192,7 @@ td.n,th.n{text-align:right}
   <div class="row">
     <label class="f">泛音數 <input type="range" id="wH" min="0" max="100"><span id="wHv"></span></label>
     <label class="f">泛音強度 <input type="range" id="wS" min="0" max="100"><span id="wSv"></span></label>
-    <label class="f">雜散 <input type="range" id="wSp" min="0" max="100"><span id="wSpv"></span></label>
+    <label class="f">抗雜散 <input type="range" id="wSp" min="0" max="100"><span id="wSpv"></span></label>
     <label class="f">穩定度 <input type="range" id="wSt" min="0" max="100"><span id="wStv"></span></label>
   </div>
 </div>
@@ -197,12 +200,15 @@ td.n,th.n{text-align:right}
 
 <div class="pg" data-p="res">
 <h2>輸出與備份</h2>
+<div class="muted"><b>資料只存在你這台裝置的瀏覽器，不會上傳到任何雲端。</b>需要保留的話，請用下面的按鈕輸出到自己的裝置；按「新專案」或清除瀏覽器資料後就找不回來了。</div>
+<div style="color:#fbbf24;font-weight:700;margin-top:6px">⚠ 要和之前的測試疊圖比較，只能用 JSON 檔：先按「備份 JSON」存檔，之後按「匯入／合併 JSON」匯入。Markdown、PDF、CSV 都不能匯入，無法疊圖。</div>
 <div class="row">
   <button id="xMd">📝 Markdown</button>
   <button id="xPdf">📄 PDF（列印存成 PDF）</button>
   <button id="xCsv">📊 CSV（回歸分析用）</button>
   <button id="xJson">💾 備份 JSON</button>
   <button id="xImp">📂 匯入／合併 JSON</button>
+  <button id="xNew" class="danger">🆕 新專案</button>
   <input type="file" id="impFile" accept=".json,application/json" hidden>
 </div>
 <div class="muted">PDF：按下後在列印視窗的「目的地」選「另存為 PDF」。JSON 含全部原始曲線，可在別台電腦匯入接著測。匯入時若目前已有材質，可選「合併」：把檔案裡的材質加進來，方便比較不同次測試。</div>
@@ -309,7 +315,10 @@ function metricsOf(curve,sr,f0){
   const pw=hm.filter(p=>p.db>-60).reduce((s,p)=>s+Math.pow(10,p.db/10),0);
   const S=pw>0?10*Math.log10(pw):-60;
   const worst=sp.length?sp.reduce((a,b)=>a.db>b.db?a:b):null;
-  return{H,S,spurDb:worst?worst.db:-60,spurF:worst?worst.f:null,spurN:sp.length,levels,peaks:pk};
+  // 音色傾向：能量重心落在基頻的幾倍（基頻＝0 dBc）。數字小偏溫暖、大偏明亮；不計入分數
+  const tw=hm.filter(p=>p.db>-60).reduce((a,p)=>{const q=Math.pow(10,p.db/10);return[a[0]+p.k*q,a[1]+q]},[1,1]);
+  const B=tw[0]/tw[1];
+  return{H,S,B,spurDb:worst?worst.db:-60,spurF:worst?worst.f:null,spurN:sp.length,levels,peaks:pk};
 }
 function resultOf(m,mi){
   const n=m.notes[mi];if(!n||!n.takes.length)return null;
@@ -353,7 +362,7 @@ function compare(){
   const rows=ms.map(m=>{
     const ns=use?common:doneNotes(m),rs=ns.map(k=>resultOf(m,k)).filter(Boolean),tot=rs.map(total);
     const stabs=rs.map(r=>r.stab).filter(x=>x!=null);
-    return{m,ns,tot,avg:mean(tot),min:Math.min(...tot),sd:sdev(tot),H:mean(rs.map(r=>r.H)),S:mean(rs.map(r=>r.S)),
+    return{m,ns,tot,avg:mean(tot),min:Math.min(...tot),sd:sdev(tot),H:mean(rs.map(r=>r.H)),S:mean(rs.map(r=>r.S)),B:mean(rs.map(r=>r.B)),
       spur:mean(rs.map(r=>r.spurDb)),spurNone:rs.every(r=>r.spurF==null),stab:stabs.length?mean(stabs):null,wins:0};
   });
   if(use)common.forEach(k=>{let b=null,bs=-1;rows.forEach(r=>{const t=total(resultOf(r.m,k));if(t>bs){bs=t;b=r}});if(b)b.wins++});
@@ -405,7 +414,7 @@ function sumData(c){
   const mats=c.rows.map(r=>{
     const ss=r.ns.map(k=>resultOf(r.m,k)).filter(Boolean).map(subScores);
     const av=key=>{const v=ss.map(s=>s[key]).filter(x=>x!=null);return v.length?mean(v):null};
-    return{name:r.m.name,color:MCOL[proj.mats.indexOf(r.m)%8],avg:r.avg,sub:[av('h'),av('s'),av('sp'),av('st')],
+    return{name:r.m.name,color:MCOL[proj.mats.indexOf(r.m)%8],avg:r.avg,B:r.B,sub:[av('h'),av('s'),av('sp'),av('st')],
       per:ks.map(k=>{const nn=r.m.notes[k],res=nn&&nn.done?resultOf(r.m,k):null;return res?total(res):null})};
   });
   return{ks,mats};
@@ -416,8 +425,19 @@ function drawSummary(kind,g,W,H,light,d){
   const M=d.mats,n=M.length;
   g.font='12px system-ui';
   const title=s=>{g.fillStyle=T.mu;g.textAlign='left';g.font='12px system-ui';g.fillText(s,6,16)};
-  if(kind==='bar'){
-    title('綜合分（各音單音總分的平均，0–100）');
+  if(kind==='tone'){
+    title('音色傾向（只看相對位置，不分好壞）');
+    const S=[...M].sort((a,b)=>a.B-b.B),lo0=S[0].B,hi0=S[n-1].B,mid=(lo0+hi0)/2,half=Math.max(hi0-lo0,1)*.6;   // 軸寬至少 1.2 倍，避免小差距被放大
+    const lo=mid-half,hi=mid+half,L=Math.min(140,W*.32),R=14,top=46,rh=26,xo=v=>L+(W-L-R)*(v-lo)/(hi-lo);
+    g.font='12px system-ui';g.fillStyle=T.tx;g.textAlign='left';g.fillText('← 溫暖',L,36);g.textAlign='right';g.fillText('明亮 →',W-R,36);
+    g.strokeStyle=T.gr;g.lineWidth=1;
+    S.forEach((m,i)=>{const y=top+i*rh+rh/2,x=xo(m.B);
+      g.beginPath();g.moveTo(L,y);g.lineTo(W-R,y);g.stroke();
+      g.textAlign='left';g.fillStyle=T.tx;g.font='12px system-ui';g.fillText(m.name,6,y+4,L-12);
+      g.fillStyle=m.color;g.beginPath();g.arc(x,y,6,0,7);g.fill();
+      const t=fmt(m.B,2)+' 倍';g.font='11px system-ui';g.fillStyle=T.tx;const right=x+12+g.measureText(t).width<W-R;g.textAlign=right?'left':'right';g.fillText(t,x+(right?10:-10),y-7)});
+  }else if(kind==='bar'){
+    title('泛音表現分（各音單音總分的平均，0–100）');
     const L=Math.min(140,W*.32),R=46,top=30,rh=(H-top-6)/n,bh=Math.min(22,rh*.62);
     g.strokeStyle=T.gr;g.lineWidth=1;
     [0,50,100].forEach(v=>{const x=L+(W-L-R)*v/100;g.beginPath();g.moveTo(x,top-4);g.lineTo(x,H-4);g.stroke()});
@@ -427,8 +447,8 @@ function drawSummary(kind,g,W,H,light,d){
       g.fillStyle=m.color+'cc';g.fillRect(L,y,Math.max(w,1),bh);
       g.fillStyle=T.tx;g.font='bold 12px system-ui';g.fillText(fmt(m.avg,1),L+w+6,y+bh/2+4)});
   }else if(kind==='radar'){
-    title('四項分數（越外圈越好；雜散高分＝越乾淨）');
-    const labs=['泛音數量','泛音強度','雜散','穩定度'];
+    title('四項分數（越外圈越好）');
+    const labs=['泛音數量','泛音強度','抗雜散','穩定度'];
     const cx=W/2,cy=H/2+10,r=Math.min((W/2-70)/1.12,(H-50)/2-18);
     const pt=(i,v)=>{const a=-Math.PI/2+i*Math.PI/2;return[cx+Math.cos(a)*r*v/100,cy+Math.sin(a)*r*v/100]};
     g.strokeStyle=T.gr;g.lineWidth=1;
@@ -473,7 +493,7 @@ function sumCanvas(kind,w,h,light,d){
   cv.width=Math.round(w*dp);cv.height=Math.round(h*dp);const g=cv.getContext('2d');g.scale(dp,dp);
   drawSummary(kind,g,w,h,light,d);return cv;
 }
-const sumSizes=(w,n,kc)=>({bar:[w,36+n*36],radar:[Math.min(w,440),310],notes:[w,w<500?56+kc*(n*13+7):250]});
+const sumSizes=(w,n,kc)=>({bar:[w,36+n*36],tone:[w,54+n*26],radar:[Math.min(w,440),310],notes:[w,w<500?56+kc*(n*13+7):250]});
 
 // ---------- 音訊 ----------
 let ac,an,srcNode,stream,mediaSrc,mode=null,frozen=false,peakHold=false,peakData=null,live=null;
@@ -661,6 +681,8 @@ function renderNoteCard(){
   el.innerHTML=h;
   el.querySelectorAll('.take b').forEach(b=>b.onclick=()=>{n.takes.splice(+b.dataset.i,1);if(!n.takes.length)n.done=false;invalidate();renderAll()});
 }
+const SCORE_NOTE='泛音表現分代表泛音的數量、強度與乾淨穩定程度，不代表好不好聽，也不代表樂器價值。';
+const TONE_NOTE='音色傾向：聲音能量的重心落在基頻的幾倍，數字小偏溫暖、大偏明亮。只描述特色、不計入分數；麥克風距離和角度會影響它，比較時擺位要一致。';
 function heat(v){return 'background:hsla('+Math.round(v*1.2)+',60%,38%,.55)'}
 function renderCmp(){
   const el=$('cmp'),c=compare();
@@ -669,9 +691,9 @@ function renderCmp(){
   if(c.ms.length<2)h+='<div class="muted">目前只有一個材質有完成的音，再測另一個材質才能比較。</div>';
   else if(!c.use)h+='<div class="bad">兩個材質沒有共同完成的音，無法公平比較；下面只列各自平均。</div>';
   else h+='<div class="muted">共同完成的音 '+c.common.length+' 個：'+c.common.map(k=>solf(k)).join('、')+'（只用這些音排名）</div>';
-  h+='<table><tr><th>名次</th><th>材質</th><th class="n">綜合分</th><th class="n">平均泛音數</th><th class="n">泛音強度 dB</th><th class="n">雜散 dBc（越小越好）</th><th class="n">穩定度 dB</th><th class="n">最低音分</th><th class="n">音間落差</th><th class="n">單音第一</th></tr>';
-  c.rows.forEach((r,i)=>{h+='<tr><td>'+(i+1)+'</td><td><span style="color:'+MCOL[proj.mats.indexOf(r.m)%8]+'">●</span> '+esc(r.m.name)+'</td><td class="n"><b'+(i===0&&c.rows.length>1?' class="best"':'')+'>'+fmt(r.avg,1)+'</b></td><td class="n">'+fmt(r.H,1)+'</td><td class="n">'+fmt(r.S,1)+'</td><td class="n">'+spurCell(r)+'</td><td class="n">'+fmt(r.stab,1)+'</td><td class="n">'+fmt(r.min,0)+'</td><td class="n">'+fmt(r.sd,1)+'</td><td class="n">'+(c.use?r.wins:'—')+'</td></tr>'});
-  h+='</table><div class="muted" style="margin-top:4px">雜散：數字越小（越負）越好；「無」＝沒偵測到雜散。</div>';
+  h+='<table><tr><th>名次</th><th>材質</th><th class="n">泛音表現分</th><th class="n">平均泛音數</th><th class="n">泛音強度 dB</th><th class="n">雜散 dBc（越小越好）</th><th class="n">穩定度 dB</th><th class="n">最低音分</th><th class="n">音間落差</th><th class="n">單音第一</th><th class="n">音色傾向</th></tr>';
+  c.rows.forEach((r,i)=>{h+='<tr><td>'+(i+1)+'</td><td><span style="color:'+MCOL[proj.mats.indexOf(r.m)%8]+'">●</span> '+esc(r.m.name)+'</td><td class="n"><b'+(i===0&&c.rows.length>1?' class="best"':'')+'>'+fmt(r.avg,1)+'</b></td><td class="n">'+fmt(r.H,1)+'</td><td class="n">'+fmt(r.S,1)+'</td><td class="n">'+spurCell(r)+'</td><td class="n">'+fmt(r.stab,1)+'</td><td class="n">'+fmt(r.min,0)+'</td><td class="n">'+fmt(r.sd,1)+'</td><td class="n">'+(c.use?r.wins:'—')+'</td><td class="n">'+fmt(r.B,2)+'</td></tr>'});
+  h+='</table><div class="muted" style="margin-top:4px">'+SCORE_NOTE+'<br>'+TONE_NOTE+'<br>雜散：數字越小（越負）越好；「無」＝沒偵測到雜散。</div>';
   const ks=c.use?c.common:[...new Set(c.ms.flatMap(doneNotes))].sort((a,b)=>a-b);
   h+='<div class="muted" style="margin-top:10px">各音單音總分（綠＝高分；粗體＝該音最佳）</div><table><tr><th>音（寫譜 → 聲音）</th>'+c.rows.map(r=>'<th class="n">'+esc(r.m.name)+'</th>').join('')+'</tr>';
   ks.forEach(k=>{
@@ -679,7 +701,7 @@ function renderCmp(){
     h+='<tr><td>'+solf(k)+'（'+nm(k)+'）→ '+nm(k+proj.transpose)+'</td>'+sc.map(v=>v==null?'<td class="n muted">—</td>':'<td class="n" style="'+heat(v)+'">'+(v===best&&sc.filter(x=>x!=null).length>1?'<b>'+fmt(v,1)+'</b>':fmt(v,1))+'</td>').join('')+'</tr>'});
   el.innerHTML=h+'</table>';
   const box=$('sumBox'),bw=box.clientWidth||600,d=sumData(c),sz=sumSizes(bw,d.mats.length,d.ks.length);
-  [['bar',sz.bar],['radar',sz.radar],['notes',sz.notes]].forEach(([k,[w,hh]])=>{
+  [['bar',sz.bar],['tone',sz.tone],['radar',sz.radar],['notes',sz.notes]].forEach(([k,[w,hh]])=>{
     const cv=sumCanvas(k,w,hh,false,d);cv.style.cssText='display:block;margin:0 auto 10px;max-width:100%;width:'+w+'px;height:auto';box.appendChild(cv)});
 }
 let rzT;addEventListener('resize',()=>{clearTimeout(rzT);rzT=setTimeout(()=>{try{renderCmp()}catch(e){}},200)});
@@ -767,14 +789,14 @@ function reportParts(){
   const {c,ks}=mdl,w=proj.weights,out={};
   out.head=[['日期（台北時間）',tpe()],['樂器調性',instLabel()],['基準音高','A4 = '+proj.a4+' Hz'],['材質',c.ms.map(m=>m.name).join('、')],['比較用的音',(c.use?c.common:ks).map(k=>solf(k)+'（'+nm(k)+' → '+nm(k+proj.transpose)+'）').join('、')],['測試條件',proj.cond?proj.cond.replace(/\r?\n/g,'；'):'（未填）']];
   out.attrs=c.ms.map(m=>[m.name,parseAttrs(m.attrs).map(([k,v])=>k+'：'+v).join('；')||'（未填）']);
-  out.rank={hd:['名次','材質','綜合分','平均泛音數','泛音強度 dB','雜散 dBc（越小越好）','穩定度 dB','最低音分','音間落差','單音第一'],
-    rows:c.rows.map((r,i)=>[i+1,r.m.name,fmt(r.avg,1),fmt(r.H,1),fmt(r.S,1),spurCell(r),fmt(r.stab,1),fmt(r.min,0),fmt(r.sd,1),c.use?r.wins:'—'])};
+  out.rank={hd:['名次','材質','泛音表現分','平均泛音數','泛音強度 dB','雜散 dBc（越小越好）','穩定度 dB','最低音分','音間落差','單音第一','音色傾向'],
+    rows:c.rows.map((r,i)=>[i+1,r.m.name,fmt(r.avg,1),fmt(r.H,1),fmt(r.S,1),spurCell(r),fmt(r.stab,1),fmt(r.min,0),fmt(r.sd,1),c.use?r.wins:'—',fmt(r.B,2)])};
   const sd=sumData(c);
   out.sumText=sd.mats.map((m,i)=>(i+1)+'. '+m.name+'　'+'█'.repeat(Math.round(m.avg/5))+' '+fmt(m.avg,1));
-  out.sub={hd:['材質','泛音數量','泛音強度','雜散','穩定度'],rows:sd.mats.map(m=>[m.name].concat(m.sub.map(v=>fmt(v,0))))};
+  out.sub={hd:['材質','泛音數量','泛音強度','抗雜散','穩定度'],rows:sd.mats.map(m=>[m.name].concat(m.sub.map(v=>fmt(v,0))))};
   out.sumData=sd;
   const top=c.rows[0],most=[...c.rows].sort((a,b)=>b.H-a.H)[0],cln=[...c.rows].sort((a,b)=>a.spur-b.spur)[0],stb=c.rows.filter(r=>r.stab!=null).sort((a,b)=>a.stab-b.stab)[0];
-  out.concl=['綜合分最高：'+top.m.name+'（'+fmt(top.avg,1)+' 分）','平均泛音數最多：'+most.m.name+'（'+fmt(most.H,1)+' 個）','雜散最乾淨：'+cln.m.name+'（'+(cln.spurNone?'沒偵測到雜散':fmt(cln.spur,0)+' dBc')+'）'].concat(stb?['最穩定：'+stb.m.name+'（'+fmt(stb.stab,1)+' dB）']:[]);
+  out.concl=['泛音表現分最高：'+top.m.name+'（'+fmt(top.avg,1)+' 分）','平均泛音數最多：'+most.m.name+'（'+fmt(most.H,1)+' 個）','雜散最乾淨：'+cln.m.name+'（'+(cln.spurNone?'沒偵測到雜散':fmt(cln.spur,0)+' dBc')+'）'].concat(stb?['最穩定：'+stb.m.name+'（'+fmt(stb.stab,1)+' dB）']:[],['音色傾向（由溫暖到明亮）：'+[...c.rows].sort((a,b)=>a.B-b.B).map(r=>r.m.name+' '+fmt(r.B,2)).join(' → ')]);
   out.notes=ks.map(k=>{
     const rows=c.rows.map(r=>({r,res:r.m.notes[k]&&r.m.notes[k].done?resultOf(r.m,k):null})).filter(x=>x.res);
     return{k,title:solf(k)+'（寫 '+nm(k)+' → 聲音 '+nm(k+proj.transpose)+'，'+mf(k+proj.transpose).toFixed(1)+' Hz）',
@@ -784,12 +806,12 @@ function reportParts(){
       lrows:rows.map(({r,res})=>[r.m.name].concat(Array.from({length:11},(_,i)=>{const l=res.levels.find(x=>x.k===i+2);return l?(l.present?'':'(')+l.db.toFixed(0)+(l.present?'':')'):'—'}))),
       curves:rows.map(({r,res})=>({data:res.curve,sr:res.sr,color:MCOL[proj.mats.indexOf(r.m)%8],lw:2,fill:0,name:r.m.name}))};
   });
-  out.method=['每個音：同一個音吹多次，每次先把基頻對齊成 0 dB（排除吹得大小聲），再逐頻率取中位數，得到代表曲線。','泛音數：2–16 次泛音中，強度在基頻下 40 dB 以內、且比周圍底噪高 10 dB 以上的個數（滿分 '+HMAX+' 個）。','泛音強度：泛音總能量相對基頻的 dB（-30 dB 得 0 分，+10 dB 得 100 分）。','雜散：非基頻整數倍（±2.5%）的最強峰值（-20 dBc 得 0 分，-60 dBc 或沒有得 100 分）。dBc 數字越小越好；表格顯示「無」＝所有音都沒偵測到雜散。','穩定度：2–8 次泛音在各次吹奏之間的標準差平均（6 dB 得 0 分，0 dB 得 100 分；只吹 1 次則不計）。','權重：泛音數 '+w.h+'、泛音強度 '+w.s+'、雜散 '+w.sp+'、穩定度 '+w.st+'。材質綜合分 ＝ 比較用各音單音總分的平均。','括號內的泛音數值＝沒偵測到明顯峰值，只是該頻率的底噪位準。'];
+  out.method=['每個音：同一個音吹多次，每次先把基頻對齊成 0 dB（排除吹得大小聲），再逐頻率取中位數，得到代表曲線。','泛音數：2–16 次泛音中，強度在基頻下 40 dB 以內、且比周圍底噪高 10 dB 以上的個數（滿分 '+HMAX+' 個）。','泛音強度：泛音總能量相對基頻的 dB（-30 dB 得 0 分，+10 dB 得 100 分）。','雜散：非基頻整數倍（±2.5%）的最強峰值（-20 dBc 得 0 分，-60 dBc 或沒有得 100 分）。dBc 數字越小越好；表格顯示「無」＝所有音都沒偵測到雜散。','穩定度：2–8 次泛音在各次吹奏之間的標準差平均（6 dB 得 0 分，0 dB 得 100 分；只吹 1 次則不計）。','權重：泛音數 '+w.h+'、泛音強度 '+w.s+'、抗雜散 '+w.sp+'、穩定度 '+w.st+'。材質泛音表現分 ＝ 比較用各音單音總分的平均。',SCORE_NOTE,TONE_NOTE,'括號內的泛音數值＝沒偵測到明顯峰值，只是該頻率的底噪位準。'];
   return out;
 }
 function buildMarkdown(){
   const R=reportParts();if(!R)return null;
-  let s='# '+proj.name+' — 材質泛音比較報告\n\n'+R.head.map(([k,v])=>'- **'+k+'**：'+v).join('\n')+'\n\n## 材質屬性\n\n'+R.attrs.map(([k,v])=>'- **'+k+'**：'+v).join('\n')+'\n\n## 綜合評價\n\n```\n'+R.sumText.join('\n')+'\n```\n\n四項分數（0–100，雜散高分＝越乾淨）：\n\n'+mdTable(R.sub.hd,R.sub.rows)+'\n## 總排名\n\n'+mdTable(R.rank.hd,R.rank.rows)+'\n'+R.concl.map(x=>'- '+x).join('\n')+'\n\n## 各音比較\n';
+  let s='# '+proj.name+' — 材質泛音比較報告\n\n'+R.head.map(([k,v])=>'- **'+k+'**：'+v).join('\n')+'\n\n## 材質屬性\n\n'+R.attrs.map(([k,v])=>'- **'+k+'**：'+v).join('\n')+'\n\n## 綜合評價\n\n```\n'+R.sumText.join('\n')+'\n```\n\n四項分數（0–100，分數越高越好；抗雜散高分＝雜散越少）：\n\n'+mdTable(R.sub.hd,R.sub.rows)+'\n## 總排名\n\n'+mdTable(R.rank.hd,R.rank.rows)+'\n'+R.concl.map(x=>'- '+x).join('\n')+'\n\n## 各音比較\n';
   R.notes.forEach(n=>{s+='\n### '+n.title+'\n\n'+mdTable(n.hd,n.rows)+'\n泛音相對基頻（dBc）：\n\n'+mdTable(n.lhd,n.lrows)});
   return s+'\n## 評分方式\n\n'+R.method.map(x=>'- '+x).join('\n')+'\n';
 }
@@ -797,7 +819,7 @@ function buildReportHtml(){
   const R=reportParts();if(!R)return null;
   let h='<h1>'+esc(proj.name)+' — 材質泛音比較報告</h1>'+R.head.map(([k,v])=>'<div><b>'+esc(k)+'</b>：'+esc(v)+'</div>').join('')+
    '<h2>材質屬性</h2>'+R.attrs.map(([k,v])=>'<div><b>'+esc(k)+'</b>：'+esc(v)+'</div>').join('')+
-   '<h2>綜合評價</h2>'+[['bar',''],['radar','width:62%;display:block;margin:6px auto;'],['notes','']].map(([k,st])=>{
+   '<h2>綜合評價</h2>'+[['bar',''],['tone',''],['radar','width:62%;display:block;margin:6px auto;'],['notes','']].map(([k,st])=>{
      const sz=sumSizes(900,R.sumData.mats.length,R.sumData.ks.length)[k];return '<img style="'+st+'" src="'+sumCanvas(k,sz[0],sz[1],true,R.sumData).toDataURL('image/png')+'">'}).join('')+htmlTable(R.sub.hd,R.sub.rows)+
    '<h2>總排名</h2>'+htmlTable(R.rank.hd,R.rank.rows)+'<ul>'+R.concl.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul><h2>各音比較</h2>';
   R.notes.forEach(n=>{
@@ -817,11 +839,11 @@ $('xPdf').onclick=()=>{const h=buildReportHtml();if(!h){alert('還沒有完成�
 $('xCsv').onclick=()=>{
   const rows=[],keys=[];
   proj.mats.forEach(m=>parseAttrs(m.attrs).forEach(([k])=>{if(!keys.includes(k))keys.push(k)}));
-  const hd=['專案','材質'].concat(keys,['寫譜音','唱名','聲音音名','基頻Hz','吹奏次數','泛音數','泛音強度dB','最強雜散dBc','雜散頻率Hz','雜散個數','穩定度dB','分項_泛音數','分項_泛音強度','分項_雜散','分項_穩定','單音總分'],Array.from({length:15},(_,i)=>'h'+(i+2)+'_dBc'));
+  const hd=['專案','材質'].concat(keys,['寫譜音','唱名','聲音音名','基頻Hz','吹奏次數','泛音數','泛音強度dB','最強雜散dBc','雜散頻率Hz','雜散個數','穩定度dB','分項_泛音數','分項_泛音強度','分項_雜散','分項_穩定','單音總分'],Array.from({length:15},(_,i)=>'h'+(i+2)+'_dBc'),['音色傾向倍數']);
   proj.mats.forEach(m=>{const at=Object.fromEntries(parseAttrs(m.attrs));
     doneNotes(m).forEach(k=>{const r=resultOf(m,k);if(!r)return;const s=subScores(r);
       rows.push([proj.name,m.name].concat(keys.map(x=>at[x]||''),[nm(k),solf(k),nm(k+proj.transpose),r.f0.toFixed(2),r.n,r.H,r.S.toFixed(2),r.spurDb.toFixed(1),r.spurF?r.spurF.toFixed(1):'',r.spurN,r.stab==null?'':r.stab.toFixed(2),s.h.toFixed(1),s.s.toFixed(1),s.sp.toFixed(1),s.st==null?'':s.st.toFixed(1),total(r).toFixed(2)],
-        Array.from({length:15},(_,i)=>{const l=r.levels.find(x=>x.k===i+2);return l?l.db.toFixed(1):''})))})});
+        Array.from({length:15},(_,i)=>{const l=r.levels.find(x=>x.k===i+2);return l?l.db.toFixed(1):''}),[r.B.toFixed(3)]))})});
   if(!rows.length){alert('還沒有完成的音可以輸出');return}
   const q=v=>{v=String(v);return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};
   download(fname()+'.csv','﻿'+[hd].concat(rows).map(r=>r.map(q).join(',')).join('\r\n'),'text/csv;charset=utf-8');
@@ -830,6 +852,14 @@ $('xJson').onclick=()=>{
   const s=JSON.stringify(proj,(k,v)=>ArrayBuffer.isView(v)?Array.from(v,x=>Math.round(x*100)/100):v);
   download(fname()+'.json',s,'application/json')};
 $('xImp').onclick=()=>$('impFile').click();
+// 新專案：清空目前專案從空白開始（下一位學生或下一次測試）；顯示設定不動
+$('xNew').onclick=()=>{
+  if(!confirm('確定要開新專案嗎？\n\n目前專案的材質、測試音和所有吹奏紀錄都會清空，無法復原。\n要保留請按「取消」，先按「備份 JSON」存到自己的裝置，之後才能匯入疊圖比較。'))return;
+  $('aud').pause();stopSource();if(frozen)$('bFreeze').click();
+  proj=newProj();setTranspose();invalidate();clearTimeout(saveT);DB.set('proj',proj).catch(()=>{});renderAll();flash('✓ 已開新專案')};
+// Reset：只清示波器畫面（即時曲線、峰值、收音到一半的這次）；專案和所有紀錄都不動
+$('xReset').onclick=()=>{if(frozen)$('bFreeze').click();live=null;peakData=null;liveMarks=[];resetAuto();
+  flash(view==='live'?'✓ 已清空畫面':'✓ 已清空即時畫面（紀錄都還在）')};
 $('impFile').onchange=async e=>{
   const f=e.target.files[0];if(!f)return;
   try{const p=JSON.parse(await f.text());if(!p||!Array.isArray(p.mats))throw new Error('格式不對');
